@@ -130,6 +130,25 @@ class SpecWrapper(dm_env.Environment):
         # "last_action": (28, 28 + self.action_size),
         #             }
 
+        """
+        player_obs_spec = specs.BoundedArray(
+                shape=(7+5,),
+                dtype="float32",
+                name="ff_observation",
+                minimum=np.array([0.0] + [-1.0] * 6 + [0.0] + [-1.0] * 4),
+                maximum=np.array([1.0] + [1.0] * 6 + [1.0] + [1.0] * 4),
+            )
+
+            agent_obs_spec = specs.BoundedArray(
+                shape=(7,),
+                dtype="float32",
+                name="ff_observation",
+                minimum=np.array([0.0] + [-1.0] * 6),
+                maximum=np.array([1.0] + [1.0] * 6),
+            )
+            obs_spec = [player_obs_spec] + [agent_obs_spec] * (self.num_players-1)
+        """
+
         # TODO: Check if all bounds are correct
         obs_min = [
             0.0,  # time_left
@@ -194,66 +213,44 @@ class SpecWrapper(dm_env.Environment):
         # Last action
         obs_min.extend(action_spec.minimum)
         obs_max.extend(action_spec.maximum)
+        assert len(obs_min) == len(obs_max)
+        player_obs_spec = specs.BoundedArray(
+            shape=(len(obs_min),),
+            dtype="float32",
+            name="ff_observation",
+            minimum=obs_min,
+            maximum=obs_max,
+        )
+        # self.obs_size = len(obs_min)
 
         # [see_player, is_on_team, player_distance,
         # player_direction] for num_agents-1
         self.num_agents = num_players
 
-        # TODO: Add this in again.
-        # for i in range(21):
-        #     # [see_player, is_on_team, player_distance,
+        # [see_player, is_on_team, player_distance,
         # player_direction (x, y format)]
-        #     obs_min.extend([0, 0, -200 / self.scaling, -1, -1])
-        #     obs_max.extend([1, 1, +200 / self.scaling, 1, 1])
-
+        obs_min = [0, 0, -200 / self.scaling, -1, -1]
+        obs_max = [1, 1, +200 / self.scaling, 1, 1]
         assert len(obs_min) == len(obs_max)
-        self.obs_size = len(obs_min)
+        agent_obs_spec = specs.BoundedArray(
+            shape=(len(obs_min),),
+            dtype="float32",
+            name="ff_observation",
+            minimum=obs_min,
+            maximum=obs_max,
+        )
+        obs_spec = [player_obs_spec] + [agent_obs_spec] * (num_players - 1)
 
         self.agents = ["player_" + str(r) for r in range(num_players)]
 
         self._observation_specs = {}
         self._action_specs = {}
 
-        obs_spec = specs.BoundedArray(
-            shape=(self.obs_size,),
-            dtype="float32",
-            name="observation",
-            minimum=obs_min,
-            maximum=obs_max,
-        )
-
         # Time_left, ball coords, ball delta_coords
         state_min = [0, -100 / self.scaling, -100 / self.scaling, -10, -10]
         state_max = [1, 100 / self.scaling, 100 / self.scaling, 10, 10]
-
-        # First player is the critic player
-        # Players sides,  coords, delta_coords, body_angle (x, y format),
-        # head_angle (x, y format)
-        for i in range(num_players):
-            state_min.extend(
-                [
-                    0.0,
-                    -100 / self.scaling,
-                    -100 / self.scaling,
-                    -10,
-                    -10,
-                    -1,
-                    -1,
-                    -1,
-                    -1,
-                ]
-            )
-            state_max.extend(
-                [1.0, +100 / self.scaling, +100 / self.scaling, +10, +10, 1, 1, 1, 1]
-            )
-
-        # Add all observations to state info
-        for i in range(num_players):
-            state_min.extend(obs_min)
-            state_max.extend(obs_max)
-
         assert len(state_min) == len(state_max)
-        self._state_spec = specs.BoundedArray(
+        time_ball_state_spec = specs.BoundedArray(
             shape=(len(state_min),),
             dtype="float32",
             name="state",
@@ -261,10 +258,44 @@ class SpecWrapper(dm_env.Environment):
             maximum=state_max,
         )
 
-        self._discount = dict(zip(self.agents, [np.float32(1.0)] * len(self.agents)))
+        # First player is the critic player
+        # Players sides,  coords, delta_coords, body_angle (x, y format),
+        # head_angle (x, y format)
+        state_min = [
+            0.0,
+            -100 / self.scaling,
+            -100 / self.scaling,
+            -10,
+            -10,
+            -1,
+            -1,
+            -1,
+            -1,
+        ]
 
-        # TODO: Delete this
-        # self.previous_act = {"player_0": None}
+        state_max = [
+            1.0,
+            +100 / self.scaling,
+            +100 / self.scaling,
+            +10,
+            +10,
+            1,
+            1,
+            1,
+            1,
+        ]
+        assert len(state_min) == len(state_max)
+        agent_state_spec = specs.BoundedArray(
+            shape=(len(state_min),),
+            dtype="float32",
+            name="state",
+            minimum=state_min,
+            maximum=state_max,
+        )
+
+        self._state_spec = [time_ball_state_spec] + [agent_state_spec] * num_players
+
+        self._discount = dict(zip(self.agents, [np.float32(1.0)] * len(self.agents)))
 
         for agent in self.agents:
             # TODO: Why is the action spec in two places?
@@ -275,11 +306,6 @@ class SpecWrapper(dm_env.Environment):
             )
 
             self._action_specs[agent] = action_spec
-        # Obs: BoundedArray(shape=(4,), dtype=dtype('float32'), name='observation',
-        # minimum=[-4.8000002e+00 -3.4028235e+38 -4.1887903e-01 -3.4028235e+38],
-        #  maximum=[4.8000002e+00 3.4028235e+38 4.1887903e-01 3.4028235e+38])
-        # Actions: DiscreteArray(shape=(), dtype=int64, name=action, minimum=0,
-        #  maximum=1, num_values=2)
 
     def reset(self):
         pass
@@ -308,7 +334,11 @@ class SpecWrapper(dm_env.Environment):
         return discount_specs
 
     def extra_spec(self) -> Dict[str, specs.BoundedArray]:
-        return {"s_t": self._state_spec}
+
+        print("State spec: ", self._state_spec)
+        exit()
+
+        return {"env_states": self._state_spec}
 
     def _proc_robocup_obs(
         self, observations: Dict, done: bool, nn_actions: Dict = None
