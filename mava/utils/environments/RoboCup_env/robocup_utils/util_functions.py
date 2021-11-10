@@ -130,29 +130,9 @@ class SpecWrapper(dm_env.Environment):
         # "last_action": (28, 28 + self.action_size),
         #             }
 
-        """
-        player_obs_spec = specs.BoundedArray(
-                shape=(7+5,),
-                dtype="float32",
-                name="ff_observation",
-                minimum=np.array([0.0] + [-1.0] * 6 + [0.0] + [-1.0] * 4),
-                maximum=np.array([1.0] + [1.0] * 6 + [1.0] + [1.0] * 4),
-            )
-
-            agent_obs_spec = specs.BoundedArray(
-                shape=(7,),
-                dtype="float32",
-                name="ff_observation",
-                minimum=np.array([0.0] + [-1.0] * 6),
-                maximum=np.array([1.0] + [1.0] * 6),
-            )
-            obs_spec = [player_obs_spec] + [agent_obs_spec] * (self.num_players-1)
-        """
-
         # TODO: Check if all bounds are correct
         obs_min = [
             0.0,  # time_left
-            0.0,  # side
             0.0,  # sense_self
             -100 / self.scaling,
             -50 / self.scaling,  # coords
@@ -182,7 +162,6 @@ class SpecWrapper(dm_env.Environment):
 
         obs_max = [
             1.0,  # time_left
-            1.0,  # side
             1.0,  # sense_self
             100 / self.scaling,
             50 / self.scaling,  # coords
@@ -214,6 +193,7 @@ class SpecWrapper(dm_env.Environment):
         obs_min.extend(action_spec.minimum)
         obs_max.extend(action_spec.maximum)
         assert len(obs_min) == len(obs_max)
+        self.player_obs_size = len(obs_min)
         player_obs_spec = specs.BoundedArray(
             shape=(len(obs_min),),
             dtype="float32",
@@ -221,17 +201,14 @@ class SpecWrapper(dm_env.Environment):
             minimum=obs_min,
             maximum=obs_max,
         )
-        # self.obs_size = len(obs_min)
-
-        # [see_player, is_on_team, player_distance,
-        # player_direction] for num_agents-1
         self.num_agents = num_players
 
-        # [see_player, is_on_team, player_distance,
+        # [see_player, player_distance,
         # player_direction (x, y format)]
-        obs_min = [0, 0, -200 / self.scaling, -1, -1]
-        obs_max = [1, 1, +200 / self.scaling, 1, 1]
+        obs_min = [0, -200 / self.scaling, -1, -1]
+        obs_max = [1, +200 / self.scaling, 1, 1]
         assert len(obs_min) == len(obs_max)
+        self.other_agent_obs_size = len(obs_min)
         agent_obs_spec = specs.BoundedArray(
             shape=(len(obs_min),),
             dtype="float32",
@@ -239,6 +216,7 @@ class SpecWrapper(dm_env.Environment):
             minimum=obs_min,
             maximum=obs_max,
         )
+        # First (num_players/2)-1 is team and second num_players/2 is enemies
         obs_spec = [player_obs_spec] + [agent_obs_spec] * (num_players - 1)
 
         self.agents = ["player_" + str(r) for r in range(num_players)]
@@ -259,10 +237,9 @@ class SpecWrapper(dm_env.Environment):
         )
 
         # First player is the critic player
-        # Players sides,  coords, delta_coords, body_angle (x, y format),
+        # Coords, delta_coords, body_angle (x, y format),
         # head_angle (x, y format)
         state_min = [
-            0.0,
             -100 / self.scaling,
             -100 / self.scaling,
             -10,
@@ -274,7 +251,6 @@ class SpecWrapper(dm_env.Environment):
         ]
 
         state_max = [
-            1.0,
             +100 / self.scaling,
             +100 / self.scaling,
             +10,
@@ -334,10 +310,6 @@ class SpecWrapper(dm_env.Environment):
         return discount_specs
 
     def extra_spec(self) -> Dict[str, specs.BoundedArray]:
-
-        print("State spec: ", self._state_spec)
-        exit()
-
         return {"env_states": self._state_spec}
 
     def _proc_robocup_obs(
@@ -365,7 +337,9 @@ class SpecWrapper(dm_env.Environment):
 
     def proc_agent_env_obs(self, env_agent_obs, last_action):  # noqa: C901
         # All angles is in x,y format
-        proc_agent_obs = np.zeros(self.obs_size, dtype=np.float32)
+        proc_agent_obs = [np.zeros(self.player_obs_size, dtype=np.float32)] + [
+            np.zeros(self.other_agent_obs_size, dtype=np.float32)
+        ] * (self.num_agents - 1)
         obs_dict = {
             "time_left": 0,
             "side": 1,
