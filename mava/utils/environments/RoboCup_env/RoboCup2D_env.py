@@ -152,7 +152,7 @@ class RoboCup2D:
             self.game_diff = 0.0
             game_length = 100
         elif game_setting == "reward_shaping":
-            game_length = 6000
+            game_length = game_length
         elif game_setting == "fixed_opponent":
             self.game_diff = 0.0
             game_length = 200
