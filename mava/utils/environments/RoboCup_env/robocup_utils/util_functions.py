@@ -350,6 +350,7 @@ class SpecWrapper(dm_env.Environment):
 
     def proc_agent_env_obs(self, env_agent_obs, last_action):  # noqa: C901
         # All angles is in x,y format
+        # Note: The player np.zeros gets overwritten. It is actually not necessary to init a zeros array.
         proc_agent_obs = [np.zeros(self.player_obs_size, dtype=np.float32)] + [
             np.zeros(self.other_agent_obs_size, dtype=np.float32)
         ] * (self.num_agents - 1)
@@ -520,7 +521,7 @@ class SpecWrapper(dm_env.Environment):
                         h_dir_y = 0.0
 
                     assert use_i < self.num_agents
-                    proc_agent_obs[use_i] = [
+                    proc_agent_obs[use_i] = np.array([
                         1.0,
                         player.distance / self.scaling if player.distance is not None else 0.0,
                         player.direction / self.scaling if player.direction is not None else 0.0,
@@ -531,7 +532,7 @@ class SpecWrapper(dm_env.Environment):
                         b_dir_y,
                         h_dir_x,
                         h_dir_y,
-                        ]
+                        ], dtype=np.float32)
 
         # if not env_agent_obs["obs_updated"]:
         #     proc_agent_obs[2] = 0.0
@@ -553,7 +554,8 @@ class SpecWrapper(dm_env.Environment):
                 processed_state_dict[agent_key] = self._proc_agent_state(state, sign)
             else:
                 print("State not found.")
-                processed_state_dict[agent_key] = [np.zeros(self._time_ball_state_size, dtype=np.float32)] + [np.zeros(self._agent_state_size, dtype=np.float32)] * self.num_agents
+                processed_state_dict[agent_key] = [np.zeros(self._time_ball_state_size, dtype=np.float32)] + \
+                                                  [np.zeros(self._agent_state_size, dtype=np.float32)] * self.num_agents
         return processed_state_dict
 
     def _proc_agent_state(self, state: Dict, sign) -> np.array:
@@ -569,7 +571,8 @@ class SpecWrapper(dm_env.Environment):
         assert self._time_ball_state_size == 5
         assert self._agent_state_size == 8
 
-        proc_agent_state = [np.zeros(self._time_ball_state_size, dtype=np.float32)] + [np.zeros(self._agent_state_size, dtype=np.float32)] * self.num_agents
+        proc_agent_state = [np.zeros(self._time_ball_state_size, dtype=np.float32)] + \
+                           [np.zeros(self._agent_state_size, dtype=np.float32)] * self.num_agents
 
         # Time left
         proc_agent_state[0][state_dict["time_left"]] = (
