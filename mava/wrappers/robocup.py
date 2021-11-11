@@ -41,9 +41,9 @@ class RoboCupWrapper(SpecWrapper):
         self._reset_next_step = False
         raw_obs, _, state = self._environment.reset()
         proc_obs = self._proc_robocup_obs(observations=raw_obs, done=False)
-        proccessed_state = self._proc_robocup_state(state, proc_obs)
+        proccessed_state = self._proc_robocup_state(state)
         timestep = dm_env.restart(proc_obs)
-        return timestep, {"env_state": proccessed_state}
+        return timestep, {"env_states": proccessed_state}
 
     def step(self, nn_actions: types.NestedArray) -> Tuple[dm_env.TimeStep, np.array]:
         """Steps the environment."""
@@ -71,7 +71,7 @@ class RoboCupWrapper(SpecWrapper):
                 discount=self._discount,
                 step_type=self._step_type,
             ),
-            {"env_state": proccessed_state},
+            {"env_states": proccessed_state},
         )
 
     @property
