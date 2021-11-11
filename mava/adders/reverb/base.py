@@ -370,6 +370,12 @@ class ReverbParallelAdder(ReverbAdder):
                 "which timestep.first() is True"
             )
 
+        if self._sequence_length > self._writer.episode_steps:
+            filled = 1
+        else:
+            filled = 0
+
+        extras.update({"filled": filled})
         # Record the next observation but leave the history buffer row open by
         # passing `partial_step=True`.
         add_dict = dict(
@@ -392,6 +398,13 @@ class ReverbParallelAdder(ReverbAdder):
         next_timestep: dm_env.TimeStep,
         next_extras: Dict[str, types.NestedArray] = {},
     ) -> None:
+
+        if self._sequence_length > self._writer.episode_steps:
+            filled = 1
+        else:
+            filled = 0
+
+        next_extras.update({"filled": filled})
         """Record an action and the following timestep."""
         if not self._add_first_called:
             raise ValueError("adder.add_first must be called before adder.add.")

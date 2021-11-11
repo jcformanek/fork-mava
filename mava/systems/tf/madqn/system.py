@@ -20,7 +20,10 @@ from typing import Any, Callable, Dict, Mapping, Optional, Type, Union
 
 import acme
 import dm_env
+from dm_env import specs
 import launchpad as lp
+from mava.components.tf.modules import mixing
+import numpy as np
 import reverb
 import sonnet as snt
 from acme import specs as acme_specs
@@ -573,7 +576,6 @@ class MADQN:
             variable_source=variable_source,
             communication_module=communication_module,
             trainer=trainer,
-            evaluator=True,
             exploration_schedules={
                 agent: ConstantScheduler(epsilon=0.0)
                 for agent in self._environment_spec.get_agent_ids()
@@ -631,36 +633,469 @@ class MADQN:
             trainer = program.add_node(lp.CourierNode(self.trainer, replay, counter))
 
         with program.group("evaluator"):
-            program.add_node(lp.CourierNode(self.evaluator, trainer, counter, trainer))
-
-        if not self._num_caches:
-            # Use the trainer as a single variable source.
-            sources = [trainer]
-        else:
-            with program.group("cacher"):
-                # Create a set of trainer caches.
-                sources = []
-                for _ in range(self._num_caches):
-                    cacher = program.add_node(
-                        lp.CacherNode(
-                            trainer, refresh_interval_ms=2000, stale_after_ms=4000
-                        )
-                    )
-                    sources.append(cacher)
+            program.add_node(lp.CourierNode(self.evaluator, trainer, counter))
 
         with program.group("executor"):
             # Add executors which pull round-robin from our variable sources.
             for executor_id in range(self._num_exectors):
-                source = sources[executor_id % len(sources)]
                 program.add_node(
                     lp.CourierNode(
                         self.executor,
                         executor_id,
                         replay,
-                        source,
-                        counter,
                         trainer,
+                        counter,
                     )
                 )
 
         return program
+
+
+# TODO Remove seq stuff from madqn - what about dial
+class RecurrentMADQN(MADQN):
+    def __init__(
+        self,
+        environment_factory: Callable[[bool], dm_env.Environment],
+        network_factory: Callable[[acme_specs.BoundedArray], Dict[str, snt.Module]],
+        exploration_scheduler_fn: Union[
+            EpsilonScheduler,
+            Mapping[str, EpsilonScheduler],
+            Mapping[str, Mapping[str, EpsilonScheduler]],
+        ],
+        logger_factory: Callable[[str], MavaLogger] = None,
+        architecture: Type[DecentralisedValueActor] = DecentralisedValueActor,
+        trainer_fn: Union[
+            Type[training.MADQNTrainer], Type[training.MADQNRecurrentTrainer]
+        ] = training.MADQNRecurrentTrainer,
+        executor_fn: Type[core.Executor] = execution.MADQNRecurrentExecutor,
+        num_executors: int = 1,
+        environment_spec: mava_specs.MAEnvironmentSpec = None,
+        shared_weights: bool = True,
+        agent_net_keys: Dict[str, str] = {},
+        batch_size: int = 256,
+        prefetch_size: int = 4,
+        min_replay_size: int = 100,  # check this.
+        max_replay_size: int = 5000,
+        samples_per_insert: Optional[float] = 32.0,
+        sequence_length: int = 20,
+        period: int = 20,
+        max_gradient_norm: float = None,
+        discount: float = 0.99,
+        optimizer: Union[snt.Optimizer, Dict[str, snt.Optimizer]] = snt.optimizers.Adam(
+            learning_rate=1e-4
+        ),
+        target_update_period: int = 100,
+        executor_variable_update_period: int = 100,  # check
+        max_executor_steps: int = None,
+        checkpoint: bool = True,
+        checkpoint_subpath: str = "~/mava/",
+        checkpoint_minute_interval: int = 5,
+        logger_config: Dict = {},
+        train_loop_fn: Callable = ParallelEnvironmentLoop,
+        eval_loop_fn: Callable = ParallelEnvironmentLoop,
+        train_loop_fn_kwargs: Dict = {},
+        eval_loop_fn_kwargs: Dict = {},
+        learning_rate_scheduler_fn: Optional[Callable[[int], None]] = None,
+        mixer: Type[mixing.BaseMixingModule] = None,
+    ):
+        """Initialise the madqn system.
+
+        Args:
+            environment_factory : function to
+                instantiate an environment.
+            network_factory : function to instantiate system networks.
+            exploration_scheduler_fn : function specifying a decaying scheduler for epsilon exploration.
+                This can be
+                    1. The same across all agents & executors,
+                        e.g. LinearExplorationTimestepScheduler(...),
+                    2. Or at an executor level,
+                        e.g. see examples/debugging/simple_spread/feedforward/decentralised/run_madqn_configurable_epsilon.py  # noqa: E501
+                    3. Or at an agent level (same across all executors),
+                        e.g. { "agent_0": LinearExplorationTimestepScheduler(...),"agent_1": LinearExplorationTimestepScheduler(...))}.  # noqa: E501
+            logger_factory : function to
+                instantiate a system logger.
+            architecture : system architecture,
+                e.g. decentralised ,centralised or networked.
+            trainer_fn :  training type
+                associated with executor and architecture, e.g. centralised training.
+            communication_module :  module for enabling communication protocols between agents.
+            executor_fn : executor type, e.g.
+                feedforward or recurrent.
+            replay_stabilisation_fn : replay buffer stabilisaiton function, e.g. fingerprints.
+            num_executors : number of executor processes to run in
+                parallel.
+            num_caches : number of trainer node caches.
+            environment_spec : escription of
+                the action, observation spaces etc.
+            shared_weights :  whether agents should share weights or not.
+            agent_net_keys : specifies what network each agent uses.
+            batch_size : sample batch size for updates.
+            prefetch_size : size to prefetch from replay.
+            min_replay_size : minimum replay size before updating.
+            max_replay_size : maximum replay size.
+            samples_per_insert : number of samples to take
+                from replay for every insert that is made.
+            n_step : number of steps to include prior to boostrapping.
+            sequence_length : recurrent sequence rollout length.
+            importance_sampling_exponent : value of importance sampling
+                exponent (usually around 0.2).
+            max_priority_weight : Required if importance_sampling_exponent
+                is not None.
+            period : consecutive starting points for overlapping
+                rollouts across a sequence.
+            max_gradient_norm : maximum allowed norm for gradients
+                before clipping is applied.
+            discount : discount factor to use for TD updates.
+            optimizer : type of optimizer to use to update network parameters.
+            target_update_period : number of steps before target
+                networks are updated.
+            executor_variable_update_period : number of steps before
+                updating executor variables from the variable source.
+            max_executor_steps : maximum number of steps and executor
+                can in an episode.
+            checkpoint : whether to checkpoint models.
+            checkpoint_subpath : subdirectory specifying where to store
+                checkpoints.
+            checkpoint_minute_interval : The number of minutes to wait between
+                checkpoints.
+            logger_config : additional configuration settings for the
+                logger factory.
+            train_loop_fn : function to instantiate a train loop.
+            eval_loop_fn : function to instantiate a eval loop.
+            train_loop_fn_kwargs : possible keyword arguments to send
+                to the training loop.
+            eval_loop_fn_kwargs :possible keyword arguments to send to
+                the evaluation loop.
+            learning_rate_scheduler_fn : function/class that takes in a trainer step t
+                and returns the current learning rate.
+
+        Raises:
+            ValueError: [description]
+        """
+
+        if not environment_spec:
+            environment_spec = mava_specs.MAEnvironmentSpec(
+                environment_factory(evaluation=False)  # type:ignore
+            )
+
+        # set default logger if no logger provided
+        if not logger_factory:
+            logger_factory = functools.partial(
+                logger_utils.make_logger,
+                directory="~/mava",
+                to_terminal=True,
+                time_delta=10,
+            )
+
+        self._architecture = architecture
+        self._environment_factory = environment_factory
+        self._network_factory = network_factory
+        self._logger_factory = logger_factory
+        self._environment_spec = environment_spec
+        # Setup agent networks
+        self._agent_net_keys = agent_net_keys
+        if not agent_net_keys:
+            agents = environment_spec.get_agent_ids()
+            self._agent_net_keys = {
+                agent: agent.split("_")[0] if shared_weights else agent
+                for agent in agents
+            }
+        self._num_exectors = num_executors
+
+        self._max_executor_steps = max_executor_steps
+        self._checkpoint_subpath = checkpoint_subpath
+        self._checkpoint = checkpoint
+        self._logger_config = logger_config
+        self._train_loop_fn = train_loop_fn
+        self._train_loop_fn_kwargs = train_loop_fn_kwargs
+        self._eval_loop_fn = eval_loop_fn
+        self._eval_loop_fn_kwargs = eval_loop_fn_kwargs
+        self._checkpoint_minute_interval = checkpoint_minute_interval
+
+        extra_specs = self._get_extra_specs()
+
+        # Setup epsilon schedules
+        # If we receive a single schedule, we use that for all agents.
+        if not isinstance(exploration_scheduler_fn, dict):
+            self._exploration_scheduler_fn: Dict = {}
+            for executor_id in range(self._num_exectors):
+                executor = f"executor_{executor_id}"
+                self._exploration_scheduler_fn[executor] = {}
+                for agent in environment_spec.get_agent_ids():
+                    self._exploration_scheduler_fn[executor][
+                        agent
+                    ] = exploration_scheduler_fn
+        else:
+            # Using an executor level config
+            if all(key.startswith("executor") for key in exploration_scheduler_fn):
+                self._exploration_scheduler_fn = exploration_scheduler_fn
+
+            # Using an agent level config - assume all executor have the same config.
+            elif all(key.startswith("agent") for key in exploration_scheduler_fn):
+                for executor_id in range(self._num_exectors):
+                    self._exploration_scheduler_fn[
+                        executor_id
+                    ] = exploration_scheduler_fn
+
+            else:
+                raise ValueError(
+                    "Unknown exploration_scheduler_fn, please pass a callable or a dict"
+                    + " with an agent or executor"
+                    + f" level config: {exploration_scheduler_fn}"
+                )
+
+        self._builder = builder.MADQNRecurrentBuilder(
+            builder.MADQNRecurrentConfig(
+                environment_spec=environment_spec,
+                agent_net_keys=self._agent_net_keys,
+                discount=discount,
+                batch_size=batch_size,
+                prefetch_size=prefetch_size,
+                target_update_period=target_update_period,
+                executor_variable_update_period=executor_variable_update_period,
+                min_replay_size=min_replay_size,
+                max_replay_size=max_replay_size,
+                samples_per_insert=samples_per_insert,
+                sequence_length=sequence_length,
+                period=period,
+                max_gradient_norm=max_gradient_norm,
+                checkpoint=checkpoint,
+                optimizer=optimizer,
+                checkpoint_subpath=checkpoint_subpath,
+                checkpoint_minute_interval=checkpoint_minute_interval,
+                learning_rate_scheduler_fn=learning_rate_scheduler_fn,
+            ),
+            trainer_fn=trainer_fn,
+            executor_fn=executor_fn,
+            extra_specs=extra_specs,
+        )
+        self._mixer = mixer
+
+        # # Augment network architecture by adding mixing layer network.
+        # system_networks = self._mixer(
+        #     architecture=architecture,
+        # ).create_system()
+
+    def _get_extra_specs(self) -> Any:
+        """Helper to establish specs for extra information.
+
+        Returns:
+            dictionary containing extra specs
+        """
+
+        agents = self._environment_spec.get_agent_ids()
+        core_state_specs = {}
+
+        networks = self._network_factory(  # type: ignore
+            environment_spec=self._environment_spec,
+            agent_net_keys=self._agent_net_keys,
+        )
+        for agent in agents:
+            agent_type = agent.split("_")[0]
+            core_state_specs[agent] = (
+                tf2_utils.squeeze_batch_dim(
+                    networks["q_networks"][agent_type].initial_state(1)
+                ),
+            )
+
+        extras = {
+            "core_states": core_state_specs,
+            "filled": specs.DiscreteArray(num_values=1, dtype=int, name="filled"),
+        }
+        return extras
+
+    def trainer(
+        self,
+        replay: reverb.Client,
+        counter: counting.Counter,
+    ) -> mava.core.Trainer:
+        """System trainer
+
+        Args:
+            replay (reverb.Client): replay data table to pull data from.
+            counter (counting.Counter): step counter object.
+
+        Returns:
+            mava.core.Trainer: system trainer.
+        """
+
+        # Create the networks to optimize (online)
+        networks = self._network_factory(  # type: ignore
+            environment_spec=self._environment_spec,
+            agent_net_keys=self._agent_net_keys,
+        )
+
+        # Create system architecture with target networks.
+        architecture = self._architecture(
+            environment_spec=self._environment_spec,
+            value_networks=networks["q_networks"],
+            agent_net_keys=self._agent_net_keys,
+        )
+
+        # Augment network architecture by adding mixing layer network.
+        if self._mixer:
+            system_networks = self._mixer(
+                architecture=architecture,
+            ).create_system()
+        else:
+            system_networks = architecture.create_system()
+
+        # create logger
+        trainer_logger_config = {}
+        if self._logger_config and "trainer" in self._logger_config:
+            trainer_logger_config = self._logger_config["trainer"]
+        trainer_logger = self._logger_factory(  # type: ignore
+            "trainer", **trainer_logger_config
+        )
+
+        dataset = self._builder.make_dataset_iterator(replay)
+        counter = counting.Counter(counter, "trainer")
+
+        return self._builder.make_trainer(
+            networks=system_networks,
+            dataset=dataset,
+            counter=counter,
+            logger=trainer_logger,
+        )
+
+    def executor(
+        self,
+        executor_id: str,
+        replay: reverb.Client,
+        variable_source: acme.VariableSource,
+        counter: counting.Counter,
+    ) -> mava.ParallelEnvironmentLoop:
+        """System executor
+
+        Args:
+            executor_id (str): id to identify the executor process for logging purposes.
+            replay (reverb.Client): replay data table to push data to.
+            variable_source (acme.VariableSource): variable server for updating
+                network variables.
+            counter (counting.Counter): step counter object.
+
+        Returns:
+            mava.ParallelEnvironmentLoop: environment-executor loop instance.
+        """
+
+        # Create the behavior policy.
+        networks = self._network_factory(  # type: ignore
+            environment_spec=self._environment_spec,
+            agent_net_keys=self._agent_net_keys,
+        )
+
+        # Create system architecture with target networks.
+        architecture = self._architecture(
+            environment_spec=self._environment_spec,
+            value_networks=networks["q_networks"],
+            agent_net_keys=self._agent_net_keys,
+        )
+
+        system_networks = architecture.create_system()
+
+        # Create the executor.
+        executor = self._builder.make_executor(
+            q_networks=system_networks["values"],
+            action_selectors=networks["action_selectors"],
+            adder=self._builder.make_adder(replay),
+            variable_source=variable_source,
+            exploration_schedules=self._exploration_scheduler_fn[
+                f"executor_{executor_id}"
+            ],
+        )
+
+        # TODO (Arnu): figure out why factory function are giving type errors
+        # Create the environment.
+        environment = self._environment_factory(evaluation=False)  # type: ignore
+
+        # Create logger and counter; actors will not spam bigtable.
+        counter = counting.Counter(counter, "executor")
+
+        # Create executor logger
+        executor_logger_config = {}
+        if self._logger_config and "executor" in self._logger_config:
+            executor_logger_config = self._logger_config["executor"]
+        exec_logger = self._logger_factory(  # type: ignore
+            f"executor_{executor_id}", **executor_logger_config
+        )
+
+        # Create the loop to connect environment and executor.
+        train_loop = self._train_loop_fn(
+            environment,
+            executor,
+            counter=counter,
+            logger=exec_logger,
+            **self._train_loop_fn_kwargs,
+        )
+
+        train_loop = DetailedPerAgentStatistics(train_loop)
+
+        return train_loop
+
+    def evaluator(
+        self,
+        variable_source: acme.VariableSource,
+        counter: counting.Counter,
+    ) -> Any:
+        """System evaluator (an executor process not connected to a dataset).
+
+        Args:
+            variable_source : variable server for updating
+                network variables.
+            counter : step counter object.
+
+        Returns:
+            environment-executor evaluation loop instance for evaluating the
+                performance of a system.
+        """
+
+        # Create the behavior policy.
+        networks = self._network_factory(  # type: ignore
+            environment_spec=self._environment_spec,
+            agent_net_keys=self._agent_net_keys,
+        )
+
+        # Create system architecture with target networks.
+        architecture = self._architecture(
+            environment_spec=self._environment_spec,
+            value_networks=networks["q_networks"],
+            agent_net_keys=self._agent_net_keys,
+        )
+
+        system_networks = architecture.create_system()
+
+        # Create the agent.
+        executor = self._builder.make_executor(
+            q_networks=system_networks["values"],
+            action_selectors=networks["action_selectors"],
+            variable_source=variable_source,
+            exploration_schedules={
+                agent: ConstantScheduler(epsilon=0.0)
+                for agent in self._environment_spec.get_agent_ids()
+            },
+        )
+
+        # Make the environment.
+        environment = self._environment_factory(evaluation=True)  # type: ignore
+
+        # Create logger and counter.
+        counter = counting.Counter(counter, "evaluator")
+        evaluator_logger_config = {}
+        if self._logger_config and "evaluator" in self._logger_config:
+            evaluator_logger_config = self._logger_config["evaluator"]
+        eval_logger = self._logger_factory(  # type: ignore
+            "evaluator", **evaluator_logger_config
+        )
+
+        # Create the run loop and return it.
+        # Create the loop to connect environment and executor.
+        eval_loop = self._eval_loop_fn(
+            environment,
+            executor,
+            counter=counter,
+            logger=eval_logger,
+            **self._eval_loop_fn_kwargs,
+        )
+
+        eval_loop = DetailedPerAgentStatistics(eval_loop)
+        return eval_loop

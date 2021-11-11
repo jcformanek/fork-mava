@@ -38,6 +38,7 @@ from mava.systems.tf.executors import (
 )
 from mava.systems.tf.madqn.training import MADQNTrainer
 from mava.types import OLT
+from tensorflow.python.framework.ops import NotDifferentiable
 
 
 class DQNExecutor:
@@ -294,6 +295,147 @@ class MADQNFeedForwardExecutor(FeedForwardExecutor, DQNExecutor):
             self._variable_client.update(wait)
 
 
+# class MADQNRecurrentExecutor(RecurrentExecutor, DQNExecutor):
+#     """A recurrent executor.
+#     An executor based on a recurrent policy for each agent in the system
+#     """
+
+#     def __init__(
+#         self,
+#         q_networks: Dict[str, snt.Module],
+#         action_selectors: Dict[str, snt.Module],
+#         agent_net_keys: Dict[str, str],
+#         adder: Optional[adders.ParallelAdder] = None,
+#         variable_client: Optional[tf2_variable_utils.VariableClient] = None,
+#         store_recurrent_state: bool = True,
+#         trainer: MADQNTrainer = None,
+#         communication_module: Optional[BaseCommunicationModule] = None,
+#         fingerprint: bool = False,
+#         evaluator: bool = False,
+#     ):
+#         """Initialise the system executor
+
+#         Args:
+#             q_networks (Dict[str, snt.Module]): q-value networks for each agent in the
+#                 system.
+#             action_selectors (Dict[str, Any]): policy action selector method, e.g.
+#                 epsilon greedy.
+#             agent_net_keys: (dict, optional): specifies what network each agent uses.
+#                 Defaults to {}.
+#             agent_net_keys (Dict[str, Any]): specifies what network each agent uses.
+#             adder (Optional[adders.ParallelAdder], optional): adder which sends data
+#                 to a replay buffer. Defaults to None.
+#             variable_client (Optional[tf2_variable_utils.VariableClient], optional):
+#                 client to copy weights from the trainer. Defaults to None.
+#             store_recurrent_state (bool, optional): boolean to store the recurrent
+#                 network hidden state. Defaults to True.
+#             trainer (MADQNTrainer, optional): system trainer. Defaults to None.
+#             communication_module (BaseCommunicationModule): module for enabling
+#                 communication protocols between agents. Defaults to None.
+#             fingerprint (bool, optional): whether to use fingerprint stabilisation to
+#                 stabilise experience replay. Defaults to False.
+#             evaluator (bool, optional): whether the executor will be used for
+#                 evaluation. Defaults to False.
+#         """
+
+#         # Store these for later use.
+#         self._adder = adder
+#         self._variable_client = variable_client
+#         self._q_networks = q_networks
+#         self._policy_networks = q_networks
+#         self._action_selectors = action_selectors
+#         self._store_recurrent_state = store_recurrent_state
+#         self._trainer = trainer
+#         self._agent_net_keys = agent_net_keys
+
+#         self._states: Dict[str, Any] = {}
+
+#     @tf.function
+#     def _policy(
+#         self,
+#         agent: str,
+#         observation: types.NestedTensor,
+#         state: types.NestedTensor,
+#         legal_actions: types.NestedTensor,
+#     ) -> types.NestedTensor:
+#         """Agent specific policy function
+
+#         Args:
+#             agent (str): agent id
+#             observation (types.NestedTensor): observation tensor received from the
+#                 environment.
+#             state (types.NestedTensor): recurrent network state.
+#             message (types.NestedTensor): received agent messsage.
+#             legal_actions (types.NestedTensor): actions allowed to be taken at the
+#                 current observation.
+
+#         Returns:
+#             types.NestedTensor: action and new recurrent hidden state
+#         """
+
+#         # Add a dummy batch dimension and as a side effect convert numpy to TF.
+#         batched_observation = tf2_utils.add_batch_dim(observation)
+#         batched_legals = tf2_utils.add_batch_dim(legal_actions)
+
+#         # index network either on agent type or on agent id
+#         agent_key = self._agent_net_keys[agent]
+
+#         # Compute the policy, conditioned on the observation.
+#         q_values, new_state = self._q_networks[agent_key](batched_observation, state)
+
+#         # select legal action
+#         action = self._action_selectors[agent](q_values, batched_legals)
+
+#         return action, new_state
+
+#     def select_action(
+#         self, agent: str, observation: types.NestedArray
+#     ) -> types.NestedArray:
+#         """select an action for a single agent in the system
+
+#         Args:
+#             agent (str): agent id
+#             observation (types.NestedArray): observation tensor received from the
+#                 environment.
+
+#         Raises:
+#             NotImplementedError: has not been implemented for this training type.
+#         """
+
+#         policy_output, new_state = self._policy(
+#             agent,
+#             observation.observation,
+#             self._states[agent],
+#             observation.legal_actions,
+#         )
+
+#         self._states[agent] = new_state
+
+#         return tf2_utils.to_numpy_squeeze(policy_output)
+
+#     def select_actions(
+#         self, observations: Dict[str, OLT]
+#     ) -> Dict[str, types.NestedArray]:
+#         """select the actions for all agents in the system
+
+#         Args:
+#             observations (Dict[str, OLT]): transition object containing observations,
+#                 legal actions and terminals.
+
+#         Returns:
+#             Dict[str, types.NestedArray]: actions for all agents in the system.
+#         """
+
+#         actions = {}
+#         for agent, observation in observations.items():
+#             actions[agent] = self.select_action(agent, observation)
+
+#         # print(actions)
+#         # raise NotDifferentiable()
+#         # Return a numpy array with squeezed out batch dimension.
+#         return actions
+
+
 class MADQNRecurrentExecutor(RecurrentExecutor, DQNExecutor):
     """A recurrent executor.
     An executor based on a recurrent policy for each agent in the system
@@ -308,9 +450,6 @@ class MADQNRecurrentExecutor(RecurrentExecutor, DQNExecutor):
         variable_client: Optional[tf2_variable_utils.VariableClient] = None,
         store_recurrent_state: bool = True,
         trainer: MADQNTrainer = None,
-        communication_module: Optional[BaseCommunicationModule] = None,
-        fingerprint: bool = False,
-        evaluator: bool = False,
     ):
         """Initialise the system executor
 

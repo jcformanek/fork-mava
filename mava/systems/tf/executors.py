@@ -338,6 +338,7 @@ class RecurrentExecutor(core.Executor):
 
             if extras:
                 extras.update({"core_states": numpy_states})
+                # extras.update({"filled": numpy_states})
                 self._adder.add_first(timestep, extras)
             else:
                 self._adder.add_first(timestep, numpy_states)

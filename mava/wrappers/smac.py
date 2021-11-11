@@ -205,13 +205,19 @@ class SMACEnvWrapper(ParallelEnvWrapper):
         if self.env_done():
             self._step_type = dm_env.StepType.LAST
             self._reset_next_step = True
+            # dm_env expects 0 discount last timestep - TODO check other wrappers
+            discount = {
+                agent: convert_np_type(self.discount_spec()[agent].dtype, 0)
+                for agent in self._possible_agents
+            }
         else:
             self._step_type = dm_env.StepType.MID
+            discount = self._discounts
 
         timestep = dm_env.TimeStep(
             observation=observations,
             reward=rewards,
-            discount=self._discounts,
+            discount=discount,
             step_type=self._step_type,
         )
 

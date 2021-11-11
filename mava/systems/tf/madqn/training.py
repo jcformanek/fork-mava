@@ -22,7 +22,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 import numpy as np
 import reverb
 import sonnet as snt
+from sonnet.src.base import NO_VARIABLES_ERROR
 import tensorflow as tf
+from tensorflow.python.ops.gen_math_ops import NotEqual
 import tree
 import trfl
 from acme.tf import utils as tf2_utils
@@ -36,6 +38,7 @@ from mava.components.tf.modules.communication import BaseCommunicationModule
 from mava.systems.tf import savers as tf2_savers
 from mava.utils import training_utils as train_utils
 from mava.utils.sort_utils import sort_str_num
+from trfl.indexing_ops import batched_index
 
 train_utils.set_growing_gpu_memory()
 
@@ -296,7 +299,7 @@ class MADQNTrainer(mava.Trainer):
         if self._logger:
             self._logger.write(fetches)
 
-    @tf.function
+    # @tf.function
     def _forward_backward(self) -> Tuple:
         # Get data from replay (dropping extras if any). Note there is no
         # extra data here because we do not insert any into Reverb.
@@ -318,7 +321,7 @@ class MADQNTrainer(mava.Trainer):
 
         return fetches, extras
 
-    @tf.function
+    # @tf.function
     def _step(self) -> Dict:
         """Trainer forward and backward passes."""
 
@@ -536,11 +539,11 @@ class MADQNRecurrentTrainer(MADQNTrainer):
         max_gradient_norm: float = None,
         counter: counting.Counter = None,
         logger: loggers.Logger = None,
-        fingerprint: bool = False,
         checkpoint: bool = True,
         checkpoint_subpath: str = "~/mava/",
-        communication_module: Optional[BaseCommunicationModule] = None,
         learning_rate_scheduler_fn: Optional[Callable[[int], None]] = None,
+        mixing_network=None,
+        target_mixing_network=None,
     ):
         """Initialise recurrent MADQN trainer
 
@@ -575,25 +578,139 @@ class MADQNRecurrentTrainer(MADQNTrainer):
                 and returns the current learning rate.
         """
 
-        super().__init__(
-            agents=agents,
-            agent_types=agent_types,
-            q_networks=q_networks,
-            target_q_networks=target_q_networks,
-            target_update_period=target_update_period,
-            dataset=dataset,
-            optimizer=optimizer,
-            discount=discount,
-            agent_net_keys=agent_net_keys,
-            checkpoint_minute_interval=checkpoint_minute_interval,
-            max_gradient_norm=max_gradient_norm,
-            counter=counter,
-            logger=logger,
-            fingerprint=fingerprint,
-            checkpoint=checkpoint,
-            checkpoint_subpath=checkpoint_subpath,
-            learning_rate_scheduler_fn=learning_rate_scheduler_fn,
-        )
+        self._agents = agents
+        self._agent_types = agent_types
+        self._agent_net_keys = agent_net_keys
+        self._checkpoint = checkpoint
+        self._learning_rate_scheduler_fn = learning_rate_scheduler_fn
+
+        # Store online and target q-networks.
+        self._q_networks = q_networks
+        self._target_q_networks = target_q_networks
+
+        # General learner book-keeping and loggers.
+        self._counter = counter or counting.Counter()
+        self._logger = logger
+
+        # Other learner parameters.
+        self._discount = discount
+        # Set up gradient clipping.
+        if max_gradient_norm is not None:
+            self._max_gradient_norm = tf.convert_to_tensor(max_gradient_norm)
+        else:  # A very large number. Infinity results in NaNs.
+            self._max_gradient_norm = tf.convert_to_tensor(1e10)
+
+        # Necessary to track when to update target networks.
+        self._num_steps = tf.Variable(0, trainable=False)
+        self._target_update_period = target_update_period
+
+        # Create an iterator to go through the dataset.
+        self._iterator = dataset
+
+        # Dictionary with network keys for each agent.
+        self.unique_net_keys = sort_str_num(self._q_networks.keys())
+
+        # Create optimizers for different agent types.
+        if not isinstance(optimizer, dict):
+            self._optimizers: Dict[str, snt.Optimizer] = {}
+            for agent in self.unique_net_keys:
+                self._optimizers[agent] = copy.deepcopy(optimizer)
+        else:
+            self._optimizers = optimizer
+
+        # Expose the variables.
+        q_networks_to_expose = {}
+        self._system_network_variables: Dict[str, Dict[str, snt.Module]] = {
+            "q_network": {},
+        }
+        for agent_key in self.unique_net_keys:
+            q_network_to_expose = self._target_q_networks[agent_key]
+
+            q_networks_to_expose[agent_key] = q_network_to_expose
+
+            self._system_network_variables["q_network"][
+                agent_key
+            ] = q_network_to_expose.variables
+
+        # Checkpointer
+        self._system_checkpointer = {}
+        if checkpoint:
+            for agent_key in self.unique_net_keys:
+
+                checkpointer = tf2_savers.Checkpointer(
+                    directory=checkpoint_subpath,
+                    time_delta_minutes=checkpoint_minute_interval,
+                    objects_to_save={
+                        "counter": self._counter,
+                        "q_network": self._q_networks[agent_key],
+                        "target_q_network": self._target_q_networks[agent_key],
+                        "optimizer": self._optimizers,
+                        "num_steps": self._num_steps,
+                    },
+                    enable_checkpointing=checkpoint,
+                )
+
+                self._system_checkpointer[agent_key] = checkpointer
+
+        # Do not record timestamps until after the first learning step is done.
+        # This is to avoid including the time it takes for actors to come online and
+        # fill the replay buffer.
+
+        self._timestamp: Optional[float] = None
+
+        self._mixing_network = mixing_network
+        self._target_mixing_network = target_mixing_network
+
+        self._include_agent_id = True
+        self._include_prev_action = True
+
+    # @tf.function
+    def _step(
+        self,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Trainer forward and backward passes."""
+
+        # Update the target networks
+        self._update_target_networks()
+
+        # Get data from replay (dropping extras if any). Note there is no
+        # extra data here because we do not insert any into Reverb.
+        inputs = next(self._iterator)
+
+        self._forward(inputs)
+
+        self._backward()
+
+        # Log losses per agent
+        return {agent: {"policy_loss": self.loss} for agent in self._agents}
+
+    def add_info(self, observations, actions):
+        # action [T,B,1] or [T,B,1]
+        for i, agent in enumerate(self._agents):
+            env_observtion = observations[agent].observation  # [B,T,OBS_SIZE]
+            one_hot_agent_id = np.zeros(len(self._agents))
+            one_hot_agent_id[i] = 1
+            one_hot_agent_id = tf.convert_to_tensor(
+                one_hot_agent_id, dtype=env_observtion.dtype
+            )
+            broadcast_shape = list(env_observtion.shape[0:-1]) + [len(self._agents)]
+            one_hot_agent_id = tf.broadcast_to(one_hot_agent_id, broadcast_shape)
+
+            prev_actions = actions[agent][:-1]
+            one_hot_zero_action_shape = [1] + prev_actions.shape[1]
+            one_hot_zero_action = tf.zeros(observations[agent].legal_actions)
+            prev_actions = tf.zeros + prev_actions
+
+            env_observtion = tf.concat([env_observtion, one_hot_agent_id], axis=-1)
+
+            observations[agent] = mava_types.OLT(
+                observation=env_observtion,
+                legal_actions=observations[agent].legal_actions,
+                terminal=observations[agent].terminal,
+            )
+
+        # for agent,observation in observations.items():
+        return observations, actions
 
     def _forward(self, inputs: Any) -> None:
         """Trainer forward pass
@@ -616,46 +733,126 @@ class MADQNRecurrentTrainer(MADQNTrainer):
             data.extras,
         )
 
+        # Add agent id
+        observations, actions = self.add_info(observations, actions)
         # Using extra directly from inputs due to shape.
         core_state = tree.map_structure(
             lambda s: s[:, 0, :], inputs.data.extras["core_states"]
         )
 
+        zero_padding_mask = inputs.data.extras["filled"]  # [B, T]
+        zero_padding_mask = tf.transpose(zero_padding_mask, [1, 0])
+        zero_padding_mask = tf.expand_dims(zero_padding_mask, axis=-1)
+
         with tf.GradientTape(persistent=True) as tape:
-            q_network_losses: Dict[str, NestedArray] = {}
+
+            q_values_chosen_actions_all_agents = []
+            target_q_max_all_agents = []
+            reward_all_agents = []
+            env_discounts_all_agents = []
 
             for agent in self._agents:
                 agent_key = self._agent_net_keys[agent]
-                # Cast the additional discount to match the environment discount dtype.
-                discount = tf.cast(self._discount, dtype=discounts[agent][0].dtype)
 
-                q, s = snt.static_unroll(
+                q_values, _ = snt.static_unroll(
                     self._q_networks[agent_key],
                     observations[agent].observation,
                     core_state[agent][0],
                 )
 
-                q_targ, s = snt.static_unroll(
+                q_values_chosen_actions = batched_index(q_values, actions[agent])
+                q_values_chosen_actions_all_agents.append(q_values_chosen_actions)
+
+                target_q_values, _ = snt.static_unroll(
                     self._target_q_networks[agent_key],
                     observations[agent].observation,
                     core_state[agent][0],
                 )
 
-                q_network_losses[agent] = {"policy_loss": tf.zeros(())}
-                for t in range(1, q.shape[0]):
-                    loss, _ = trfl.qlearning(
-                        q[t - 1],
-                        actions[agent][t - 1],
-                        rewards[agent][t],
-                        discount * discounts[agent][t],
-                        q_targ[t],
-                    )
+                agent_legal_actions = tf.cast(observations[agent].legal_actions, "bool")
 
-                    loss = tf.reduce_mean(loss)
-                    q_network_losses[agent]["policy_loss"] += loss
+                target_q_values = tf.where(
+                    agent_legal_actions,
+                    target_q_values,
+                    -9999999
+                    # -np.inf
+                )
 
-        self._q_network_losses = q_network_losses
-        self.tape = tape
+                target_q_max = tf.reduce_max(target_q_values, axis=-1)
+                target_q_max_all_agents.append(target_q_max)
+                reward_all_agents.append(rewards[agent])
+                env_discounts_all_agents.append(discounts[agent])
+
+            q_values_chosen_actions_all_agents = tf.stack(
+                q_values_chosen_actions_all_agents, axis=-1
+            )
+            target_q_max_all_agents = tf.stack(target_q_max_all_agents, axis=-1)
+            reward_all_agents = tf.stack(reward_all_agents, axis=-1)  # [T,B,A]
+            env_discounts_all_agents = tf.stack(env_discounts_all_agents, axis=-1)
+
+            # Mixing in vdn/qmix
+            if self._mixing_network and self._target_mixing_network:
+                q_values_chosen_actions_all_agents = self._mixing_network(
+                    q_values_chosen_actions_all_agents
+                )
+                target_q_max_all_agents = self._target_mixing_network(
+                    target_q_max_all_agents
+                )
+                reward_all_agents = tf.reduce_mean(
+                    reward_all_agents, axis=-1, keepdims=True
+                )
+                # TODO Assumes all agents have the same env discount
+                env_discounts_all_agents = tf.reduce_mean(
+                    env_discounts_all_agents, axis=-1, keepdims=True
+                )
+
+            # Calc targets
+            trainer_discount = tf.cast(self._discount, env_discounts_all_agents.dtype)
+            pcont = trainer_discount * env_discounts_all_agents
+            targets = reward_all_agents + pcont * target_q_max_all_agents
+
+            # Td-error
+            td_error = q_values_chosen_actions_all_agents - targets
+
+            zero_padding_mask = tf.cast(zero_padding_mask, td_error.dtype)
+
+            # tf.print(tf.shape(zero_padding_mask_all_agents))
+            # tf.print(tf.shape(td_error))
+            # raise NotADirectoryError
+
+            masked_td_error = td_error * zero_padding_mask
+
+            loss = tf.reduce_sum(masked_td_error ** 2) / tf.reduce_sum(
+                zero_padding_mask
+            )
+
+            # tf.print()
+
+            # Loss is MSE scaled by 0.5, so the gradient is equal to the TD error.
+            # self.loss = 0.5 *
+            self.loss = loss
+            self.tape = tape
+
+    def _backward(self) -> None:
+        """Trainer backward pass updating network parameters"""
+
+        # Calculate the gradients and update the networks
+        for agent in self._agents:
+            agent_key = self._agent_net_keys[agent]
+            # Get trainable variables.
+            trainable_variables = self._q_networks[agent_key].trainable_variables
+
+            # Compute gradients.
+            gradients = self.tape.gradient(self.loss, trainable_variables)
+
+            # Clip gradients.
+            gradients = tf.clip_by_global_norm(gradients, self._max_gradient_norm)[0]
+
+            # Apply gradients.
+            self._optimizers[agent_key].apply(gradients, trainable_variables)
+
+        # Delete the tape manually because of the persistent=True flag.
+        train_utils.safe_del(self, "tape")
 
 
 class MADQNRecurrentCommTrainer(MADQNTrainer):
