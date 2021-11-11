@@ -15,6 +15,7 @@ from mava.utils.environments.RoboCup_env.robocup_utils.util_functions import (  
     wait_for_next_observations,
 )
 
+import math
 
 # spawn an agent of team_name, with position
 def spawn_agent(
@@ -75,6 +76,8 @@ def run_monitor_thread(port: int) -> None:
     # ./usr/local/bin/rcssmonitor
     os.system("/usr/local/bin/rcssmonitor --server-port=" + str(port))
 
+def dist(pt1, pt2):
+    return math.sqrt(math.pow(pt2[0]-pt1[0], 2) + math.pow(pt2[1]-pt1[1], 2))
 
 def start_server(game_setting: str, include_wait: bool, port: int) -> None:
     # Wait for server to startup completely
@@ -269,12 +272,12 @@ class RoboCup2D:
                 else:
                     raise ValueError("Unknown team: ", player["teamname"])
 
-                ball_goal_dist = wm.euclidean_distance(
+                ball_goal_dist = dist(
                     wm.ball["coords"], destination_coords
                 )
                 next_x = float(wm.ball["coords"][0]) + float(wm.ball["delta_coords"][0])
                 next_y = float(wm.ball["coords"][1]) + float(wm.ball["delta_coords"][1])
-                ball_goal_delta_dist = wm.euclidean_distance(
+                ball_goal_delta_dist = dist(
                     (next_x, next_y), destination_coords
                 )
                 ball_towards_goal = ball_goal_dist - ball_goal_delta_dist

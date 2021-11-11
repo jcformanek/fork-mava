@@ -539,15 +539,21 @@ class SpecWrapper(dm_env.Environment):
         return proc_agent_obs
 
     def _proc_robocup_state(self, state) -> Dict:
+        self._pre_states = state
+
         # TODO: Try to automatically normalise by min max boundries
         processed_state_dict = {}
         for state_i, agent_key in enumerate(sort_str_num(self.agent_keys)):
 
-            sign = 1
-            if state["players"][state_i]["side"] == 1:
-                sign = -1
+            if len(state["players"]) > state_i:
+                sign = 1
+                if state["players"][state_i]["side"] == 1:
+                    sign = -1
 
-            processed_state_dict[agent_key] = self._proc_agent_state(state, sign)
+                processed_state_dict[agent_key] = self._proc_agent_state(state, sign)
+            else:
+                print("State not found.")
+                processed_state_dict[agent_key] = [np.zeros(self._time_ball_state_size, dtype=np.float32)] + [np.zeros(self._agent_state_size, dtype=np.float32)] * self.num_agents
         return processed_state_dict
 
     def _proc_agent_state(self, state: Dict, sign) -> np.array:
@@ -709,6 +715,28 @@ class SpecWrapper(dm_env.Environment):
         else:
             raise NotImplementedError("Command not implemented: ", command)
         return robocup_action
+
+    def get_reward_shaping_info(self):
+        reward_shaping_info = {}
+        for a_i, agent_key in enumerate(sort_str_num(self.agent_keys)):
+
+            player = self._pre_states["players"][a_i]
+
+            p_x, p_y = player["coords"]
+            b_x, b_y = self._pre_states["ball"]["coords"]
+            rs_info = np.array([p_x/self.scaling, p_y/self.scaling, b_x/self.scaling,
+                                b_y/self.scaling], dtype=np.float32)
+
+            # Invert the coordinates if the agent scores to the left.
+            if player["side"] == 1:
+                rs_info = -rs_info
+
+            reward_shaping_info[agent_key] = rs_info
+
+        return reward_shaping_info
+
+    def _update_screen(self):
+        pass
 
     @property
     def possible_agents(self) -> gym.Env:

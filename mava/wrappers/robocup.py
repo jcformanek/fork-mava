@@ -57,7 +57,7 @@ class RoboCupWrapper(SpecWrapper):
         proc_obs = self._proc_robocup_obs(
             observations=raw_obs, done=done, nn_actions=nn_actions
         )
-        proccessed_state = self._proc_robocup_state(state, proc_obs)
+        proccessed_state = self._proc_robocup_state(state)
 
         if done:
             self._step_type = dm_env.StepType.LAST
