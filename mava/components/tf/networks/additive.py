@@ -24,7 +24,8 @@ class AdditiveMixingNetwork(snt.Module):
         """Initializes the mixer."""
         super(AdditiveMixingNetwork, self).__init__(name=name)
 
-    def __call__(self, q_values: tf.Tensor) -> tf.Tensor:
+    def __call__(self, q_values: tf.Tensor, global_env_state=None) -> tf.Tensor:
         """Monotonic mixing logic."""
         # return tf.math.reduce_sum(q_values, axis=1)
-        return tf.math.reduce_sum(q_values, axis=1, keepdims=True)
+        del global_env_state
+        return tf.math.reduce_sum(q_values, axis=-1, keepdims=True)

@@ -25,6 +25,7 @@ import sonnet as snt
 from sonnet.src.base import NO_VARIABLES_ERROR
 import tensorflow as tf
 from tensorflow.python.ops.gen_math_ops import NotEqual
+from tensorflow.python.ops.variables import trainable_variables
 import tree
 import trfl
 from acme.tf import utils as tf2_utils
@@ -35,6 +36,7 @@ import mava
 from mava import types as mava_types
 from mava.adders import reverb as reverb_adders
 from mava.components.tf.modules.communication import BaseCommunicationModule
+from mava.components.tf.networks.monotonic import MonotonicMixingNetwork
 from mava.systems.tf import savers as tf2_savers
 from mava.utils import training_utils as train_utils
 from mava.utils.sort_utils import sort_str_num
@@ -227,6 +229,17 @@ class MADQNTrainer(mava.Trainer):
             if tf.math.mod(self._num_steps, self._target_update_period) == 0:
                 for src, dest in zip(online_variables, target_variables):
                     dest.assign(src)
+
+        # if self._mixing_network and isinstance(
+        #     self._mixing_network, MonotonicMixingNetwork
+        # ):
+        #     # NOTE These shouldn't really be in the agent for loop.
+        #     online_variables = [*self._mixing_network.variables]
+        #     target_variables = [*self._target_mixing_network.variables]
+
+        #     # Make online -> target network update ops.
+        #     for src, dest in zip(online_variables, target_variables):
+        #         dest.assign(src)
         self._num_steps.assign_add(1)
 
     def _update_sample_priorities(self, keys: tf.Tensor, priorities: tf.Tensor) -> None:
@@ -583,6 +596,7 @@ class MADQNRecurrentTrainer(MADQNTrainer):
         self._agent_net_keys = agent_net_keys
         self._checkpoint = checkpoint
         self._learning_rate_scheduler_fn = learning_rate_scheduler_fn
+        self._double_q_learning = False
 
         # Store online and target q-networks.
         self._q_networks = q_networks
@@ -664,7 +678,35 @@ class MADQNRecurrentTrainer(MADQNTrainer):
         self._include_agent_id = True
         self._include_prev_action = True
 
-    # @tf.function
+    def _update_target_networks(self) -> None:
+        """Sync the target network parameters with the latest online network
+        parameters"""
+
+        for key in self.unique_net_keys:
+            # Update target network.
+            online_variables = (*self._q_networks[key].variables,)
+
+            target_variables = (*self._target_q_networks[key].variables,)
+
+            # Make online -> target network update ops.
+            if tf.math.mod(self._num_steps, self._target_update_period) == 0:
+                for src, dest in zip(online_variables, target_variables):
+                    dest.assign(src)
+
+        if self._mixing_network and isinstance(
+            self._mixing_network,
+            mava.components.tf.modules.mixing.monotonic.MonotonicMixingNetwork,
+        ):
+            # NOTE These shouldn't really be in the agent for loop.
+            online_variables = [*self._mixing_network.variables]
+            target_variables = [*self._target_mixing_network.variables]
+
+            # Make online -> target network update ops.
+            for src, dest in zip(online_variables, target_variables):
+                dest.assign(src)
+        self._num_steps.assign_add(1)
+
+    @tf.function
     def _step(
         self,
     ) -> Dict[str, Dict[str, Any]]:
@@ -733,8 +775,12 @@ class MADQNRecurrentTrainer(MADQNTrainer):
             data.extras,
         )
 
+        # tf.print(data.extras)
+        # tf.print()
+        # tf.print(tf.shape(data.extras["s_t"]))  # [61 32 48] [T, B, S_DIM]
+        global_env_state = data.extras["s_t"]
         # Add agent id
-        observations, actions = self.add_info(observations, actions)
+        # observations, actions = self.add_info(observations, actions)
         # Using extra directly from inputs due to shape.
         core_state = tree.map_structure(
             lambda s: s[:, 0, :], inputs.data.extras["core_states"]
@@ -778,7 +824,14 @@ class MADQNRecurrentTrainer(MADQNTrainer):
                     # -np.inf
                 )
 
-                target_q_max = tf.reduce_max(target_q_values, axis=-1)
+                if self._double_q_learning:
+                    target_q_selector = tf.where(
+                        agent_legal_actions, q_values, -99999999
+                    )
+                    selected_actions = tf.argmax(target_q_selector, axis=-1)
+                    target_q_max = trfl.batched_index(target_q_values, selected_actions)
+                else:
+                    target_q_max = tf.reduce_max(target_q_values, axis=-1)
                 target_q_max_all_agents.append(target_q_max)
                 reward_all_agents.append(rewards[agent])
                 env_discounts_all_agents.append(discounts[agent])
@@ -793,10 +846,11 @@ class MADQNRecurrentTrainer(MADQNTrainer):
             # Mixing in vdn/qmix
             if self._mixing_network and self._target_mixing_network:
                 q_values_chosen_actions_all_agents = self._mixing_network(
-                    q_values_chosen_actions_all_agents
+                    q_values_chosen_actions_all_agents,
+                    global_env_state=global_env_state,
                 )
                 target_q_max_all_agents = self._target_mixing_network(
-                    target_q_max_all_agents
+                    target_q_max_all_agents, global_env_state=global_env_state
                 )
                 reward_all_agents = tf.reduce_mean(
                     reward_all_agents, axis=-1, keepdims=True
@@ -809,10 +863,20 @@ class MADQNRecurrentTrainer(MADQNTrainer):
             # Calc targets
             trainer_discount = tf.cast(self._discount, env_discounts_all_agents.dtype)
             pcont = trainer_discount * env_discounts_all_agents
-            targets = reward_all_agents + pcont * target_q_max_all_agents
+            # tf.print(
+            #     reward_all_agents.shape,
+            #     pcont.shape,
+            #     target_q_max_all_agents.shape,
+            #     q_values_chosen_actions_all_agents.shape,
+            #     zero_padding_mask.shape,
+            # )
+            # raise NotADirectoryError
+            targets = reward_all_agents[:-1] + pcont[:-1] * target_q_max_all_agents[1:]
 
             # Td-error
-            td_error = q_values_chosen_actions_all_agents - targets
+            td_error = q_values_chosen_actions_all_agents[:-1] - tf.stop_gradient(
+                targets
+            )
 
             zero_padding_mask = tf.cast(zero_padding_mask, td_error.dtype)
 
@@ -820,7 +884,7 @@ class MADQNRecurrentTrainer(MADQNTrainer):
             # tf.print(tf.shape(td_error))
             # raise NotADirectoryError
 
-            masked_td_error = td_error * zero_padding_mask
+            masked_td_error = td_error * zero_padding_mask[:-1]
 
             loss = tf.reduce_sum(masked_td_error ** 2) / tf.reduce_sum(
                 zero_padding_mask
@@ -837,20 +901,35 @@ class MADQNRecurrentTrainer(MADQNTrainer):
         """Trainer backward pass updating network parameters"""
 
         # Calculate the gradients and update the networks
-        for agent in self._agents:
-            agent_key = self._agent_net_keys[agent]
-            # Get trainable variables.
-            trainable_variables = self._q_networks[agent_key].trainable_variables
+        # for agent in self._agents:
+        #     agent_key = self._agent_net_keys[agent]
+        #     # Get trainable variables.
+        #     trainable_variables = self._q_networks[agent_key].trainable_variables
 
-            # Compute gradients.
-            gradients = self.tape.gradient(self.loss, trainable_variables)
+        #     # Compute gradients.
+        #     gradients = self.tape.gradient(self.loss, trainable_variables)
 
-            # Clip gradients.
-            gradients = tf.clip_by_global_norm(gradients, self._max_gradient_norm)[0]
+        #     # Clip gradients.
+        #     gradients = tf.clip_by_global_norm(gradients, self._max_gradient_norm)[0]
 
-            # Apply gradients.
-            self._optimizers[agent_key].apply(gradients, trainable_variables)
+        #     # Apply gradients.
+        #     self._optimizers[agent_key].apply(gradients, trainable_variables)
 
+        trainable_variables = list(self._q_networks.values())[0].trainable_variables
+        # Only for qmix
+        # Update mixing network
+        if self._mixing_network and isinstance(
+            self._mixing_network,
+            mava.components.tf.modules.mixing.monotonic.MonotonicMixingNetwork,
+        ):
+            trainable_variables = list(trainable_variables) + list(
+                self._mixing_network.trainable_variables
+            )
+            # gradients = self.tape.gradient(self.loss, variables)
+
+        gradients = self.tape.gradient(self.loss, trainable_variables)
+        gradients = tf.clip_by_global_norm(gradients, self._max_gradient_norm)[0]
+        list(self._optimizers.values())[0].apply(gradients, trainable_variables)
         # Delete the tape manually because of the persistent=True flag.
         train_utils.safe_del(self, "tape")
 

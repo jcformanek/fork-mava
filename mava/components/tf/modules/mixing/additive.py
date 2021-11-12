@@ -47,3 +47,30 @@ class AdditiveMixing(BaseMixingModule):
         )
 
         return self._agent_networks
+
+
+# class QMixing(BaseMixingModule):
+#     """Multi-agent monotonic mixing architecture."""
+
+#     def __init__(self, architecture: BaseArchitecture) -> None:
+#         """Initializes the mixer."""
+#         super(QMixing, self).__init__()
+
+#         self._architecture = architecture
+#         self._agent_networks: Dict[str, snt.Module] = {}
+
+#     def _create_mixing_layer(self, name: str = "mixing") -> snt.Module:
+#         # Instantiate additive mixing network
+#         self._mixed_network = QMIX(name)
+#         return self._mixed_network
+
+#     def create_system(self) -> Dict[str, Dict[str, snt.Module]]:
+#         self._agent_networks[
+#             "agent_networks"
+#         ] = self._architecture.create_actor_variables()
+#         self._agent_networks["mixing"] = self._create_mixing_layer("mixing")
+#         self._agent_networks["target_mixing"] = self._create_mixing_layer(
+#             "target_mixing"
+#         )
+
+#         return self._agent_networks

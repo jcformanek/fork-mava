@@ -140,7 +140,7 @@ def main(_: Any) -> None:
             learning_rate=0.0005, epsilon=0.00001, decay=0.99
         ),
         batch_size=32,
-        executor_variable_update_period=200,
+        executor_variable_update_period=100,
         target_update_period=200,
         max_gradient_norm=10.0,
         sequence_length=61,

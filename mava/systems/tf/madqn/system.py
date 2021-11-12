@@ -933,9 +933,13 @@ class RecurrentMADQN(MADQN):
         )
 
         # Augment network architecture by adding mixing layer network.
-        if self._mixer:
+        if self._mixer is mixing.AdditiveMixing:
             system_networks = self._mixer(
                 architecture=architecture,
+            ).create_system()
+        elif self._mixer is mixing.MonotonicMixing:
+            system_networks = self._mixer(
+                architecture=architecture, environment_spec=self._environment_spec
             ).create_system()
         else:
             system_networks = architecture.create_system()

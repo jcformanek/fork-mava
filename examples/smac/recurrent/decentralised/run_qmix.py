@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Any, Dict, Mapping, Sequence, Union
 
 import launchpad as lp
+from mava.components.tf.modules import mixing
 from mava.utils.enums import ArchitectureType
 import sonnet as snt
 import tensorflow as tf
@@ -144,6 +145,7 @@ def main(_: Any) -> None:
         max_gradient_norm=10.0,
         sequence_length=61,
         period=61,
+        mixer=mixing.MonotonicMixing,
     ).build()
     # program = madqn.MADQN(
     #     environment_factory=environment_factory,
