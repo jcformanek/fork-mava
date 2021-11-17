@@ -433,9 +433,9 @@ class MADQN:
         replay: reverb.Client,
         variable_source: acme.VariableSource,
         counter: counting.Counter,
-        trainer: Optional[
-            Union[training.MADQNTrainer, training.MADQNRecurrentTrainer]
-        ] = None,
+        # trainer: Optional[
+        #     Union[training.MADQNTrainer, training.MADQNRecurrentTrainer]
+        # ] = None,
     ) -> mava.ParallelEnvironmentLoop:
         """System executor
 
@@ -489,7 +489,7 @@ class MADQN:
             communication_module=communication_module,
             adder=self._builder.make_adder(replay),
             variable_source=variable_source,
-            trainer=trainer,
+            # trainer=trainer,
             exploration_schedules=self._exploration_scheduler_fn[
                 f"executor_{executor_id}"
             ],
@@ -528,7 +528,7 @@ class MADQN:
         self,
         variable_source: acme.VariableSource,
         counter: counting.Counter,
-        trainer: training.MADQNTrainer,
+        # trainer: training.MADQNTrainer,
     ) -> Any:
         """System evaluator (an executor process not connected to a dataset).
 
@@ -579,7 +579,7 @@ class MADQN:
             action_selectors=networks["action_selectors"],
             variable_source=variable_source,
             communication_module=communication_module,
-            trainer=trainer,
+            # trainer=trainer,
             exploration_schedules={
                 agent: ConstantScheduler(epsilon=0.0)
                 for agent in self._environment_spec.get_agent_ids()

@@ -449,7 +449,7 @@ class MADQNRecurrentExecutor(RecurrentExecutor, DQNExecutor):
         adder: Optional[adders.ParallelAdder] = None,
         variable_client: Optional[tf2_variable_utils.VariableClient] = None,
         store_recurrent_state: bool = True,
-        trainer: MADQNTrainer = None,
+        # trainer: MADQNTrainer = None,
     ):
         """Initialise the system executor
 
@@ -483,7 +483,7 @@ class MADQNRecurrentExecutor(RecurrentExecutor, DQNExecutor):
         self._policy_networks = q_networks
         self._action_selectors = action_selectors
         self._store_recurrent_state = store_recurrent_state
-        self._trainer = trainer
+        # self._trainer = trainer
         self._agent_net_keys = agent_net_keys
 
         self._states: Dict[str, Any] = {}

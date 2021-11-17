@@ -30,6 +30,7 @@ from mava.systems.tf import madqn
 from mava.utils import lp_utils
 from mava.utils.environments import smac_utils
 from mava.utils.loggers import logger_utils
+from mava.utils.environments import pettingzoo_utils
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
@@ -49,8 +50,11 @@ flags.DEFINE_string("base_dir", "~/mava", "Base dir to store experiments.")
 def main(_: Any) -> None:
 
     # environment
+    # environment_factory = functools.partial(
+    #     smac_utils.make_environment, map_name=FLAGS.map_name
+    # )
     environment_factory = functools.partial(
-        smac_utils.make_environment, map_name=FLAGS.map_name
+        pettingzoo_utils.make_environment, env_class="smac", env_name=FLAGS.map_name
     )
 
     # Networks.
@@ -99,7 +103,7 @@ def main(_: Any) -> None:
     lp.launch(
         program,
         lp.LaunchType.LOCAL_MULTI_PROCESSING,
-        terminal="current_terminal",
+        # terminal="current_terminal",
         local_resources=local_resources,
     )
 

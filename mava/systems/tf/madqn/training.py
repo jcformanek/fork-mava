@@ -729,7 +729,9 @@ class MADQNRecurrentTrainer(MADQNTrainer):
     def add_info(self, observations, actions):
         # action [T,B,1] or [T,B,1]
         for i, agent in enumerate(self._agents):
-            env_observtion = observations[agent].observation  # [B,T,OBS_SIZE]
+            env_observtion = observations[agent].observation  # [T,B,OBS_Size]
+            batch_size = env_observtion.shape[1]
+            actions_size = observations[agent].legal_actions.shape[-1]
             one_hot_agent_id = np.zeros(len(self._agents))
             one_hot_agent_id[i] = 1
             one_hot_agent_id = tf.convert_to_tensor(
@@ -738,12 +740,25 @@ class MADQNRecurrentTrainer(MADQNTrainer):
             broadcast_shape = list(env_observtion.shape[0:-1]) + [len(self._agents)]
             one_hot_agent_id = tf.broadcast_to(one_hot_agent_id, broadcast_shape)
 
-            prev_actions = actions[agent][:-1]
-            one_hot_zero_action_shape = [1] + prev_actions.shape[1]
-            one_hot_zero_action = tf.zeros(observations[agent].legal_actions)
-            prev_actions = tf.zeros + prev_actions
+            first_action = tf.zeros((1, batch_size, actions_size))  # [1,B,AS]
+            prev_actions = tf.one_hot(actions[agent][:-1], actions_size)  # [T-1,B,AS]
 
-            env_observtion = tf.concat([env_observtion, one_hot_agent_id], axis=-1)
+            print(first_action, first_action.shape)
+            print(prev_actions, prev_actions.shape)
+            actions_to_concat = tf.concat(
+                [first_action, prev_actions], axis=0
+            )  # [T,B,AS]
+            print(actions_to_concat, actions_to_concat.shape)
+            # one_hot_zero_action_shape = [1] + prev_actions.shape[1]
+            # one_hot_zero_action = tf.zeros(observations[agent].legal_actions)
+            # prev_actions = tf.zeros + prev_actions
+
+            env_observtion = tf.concat(
+                [env_observtion, one_hot_agent_id, actions_to_concat], axis=-1
+            )
+            print(env_observtion, env_observtion.shape)
+
+            # raise NotADirectoryError
 
             observations[agent] = mava_types.OLT(
                 observation=env_observtion,
@@ -780,7 +795,7 @@ class MADQNRecurrentTrainer(MADQNTrainer):
         # tf.print(tf.shape(data.extras["s_t"]))  # [61 32 48] [T, B, S_DIM]
         global_env_state = data.extras["s_t"]
         # Add agent id
-        # observations, actions = self.add_info(observations, actions)
+        observations, actions = self.add_info(observations, actions)
         # Using extra directly from inputs due to shape.
         core_state = tree.map_structure(
             lambda s: s[:, 0, :], inputs.data.extras["core_states"]

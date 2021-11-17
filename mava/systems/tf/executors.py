@@ -18,6 +18,7 @@
 from typing import Any, Dict, Optional, Tuple, Union
 
 import dm_env
+import numpy as np
 import sonnet as snt
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -27,6 +28,7 @@ from acme.tf import variable_utils as tf2_variable_utils
 
 from mava import adders, core
 from mava.components.tf.modules.communication import BaseCommunicationModule
+from mava.types import Observation
 
 tfd = tfp.distributions
 
@@ -276,8 +278,26 @@ class RecurrentExecutor(core.Executor):
         # Bookkeeping of recurrent states for the observe method.
         self._states[agent] = new_state
 
+    def add_info(self, agent_observation, agent, agent_index):
+
+        one_hot_agent_id = tf.zeros(3, dtype=agent_observation.dtype)
+        one_hot_agent_id[agent_index] = 1
+
+        if self._prev_action:
+            agent_prev_action = self._prev_action[agent]
+            agent_prev_action = tf.one_hot(agent_prev_action, 9)
+        else:
+            agent_prev_action = tf.zeros(9)
+
+        observation = tf.concat(
+            [agent_observation, one_hot_agent_id, agent_prev_action], axis=0
+        )
+
+        # for agent,observation in observations.items():
+        return observation
+
     def select_action(
-        self, agent: str, observation: types.NestedArray
+        self, agent: str, observation: types.NestedArray, agent_index: int = None
     ) -> types.NestedArray:
         """select an action for a single agent in the system
 
@@ -300,9 +320,9 @@ class RecurrentExecutor(core.Executor):
             self._states[agent] = self._policy_networks[agent_key].initial_state(1)
 
         # Step the recurrent policy forward given the current observation and state.
-        policy_output, new_state = self._policy(
-            agent, observation.observation, self._states[agent]
-        )
+        # Obs with agent id and prev actions
+        observation = self.add_info(observation.observation, agent, agent_index)
+        policy_output, new_state = self._policy(agent, observation, self._states[agent])
 
         # Bookkeeping of recurrent states for the observe method.
         self._update_state(agent, new_state)
@@ -323,6 +343,8 @@ class RecurrentExecutor(core.Executor):
             extras (Dict[str, types.NestedArray]): possible extra information
                 to record during the first step. Defaults to {}.
         """
+
+        self._prev_actions = None
 
         # Re-initialize the RNN state.
         for agent, _ in timestep.observation.items():
@@ -359,6 +381,7 @@ class RecurrentExecutor(core.Executor):
                 information to record during the transition. Defaults to {}.
         """
 
+        self._prev_actions = actions
         if not self._adder:
             return
 
@@ -397,9 +420,13 @@ class RecurrentExecutor(core.Executor):
         """
 
         actions = {}
-        for agent, observation in observations.items():
+        keys = list(sort_str_num(observations.keys()))
+        for i, agent in enumerate(keys):
+            observation = observations[agent]
             # Step the recurrent policy forward given the current observation and state.
-            actions[agent] = self.select_action(agent=agent, observation=observation)
+            actions[agent] = self.select_action(
+                agent=agent, observation=observation, agent_index=i
+            )
         return actions
 
     def update(self, wait: bool = False) -> None:
