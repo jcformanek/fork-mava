@@ -5,7 +5,7 @@ docker:
   context: .
 spec:
   image: mava
-  command: make run example=examples/debugging/simple_spread/feedforward/decentralised/run_maddpg_lr_schedule.py
+  command: python examples/debugging/simple_spread/feedforward/decentralised/run_maddpg_lr_schedule.py --base_dir /home/app/mava/logs/
   types:
     Worker:
       replicas: 1
