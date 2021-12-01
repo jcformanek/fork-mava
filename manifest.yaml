@@ -1,0 +1,18 @@
+operator: tf
+docker:
+  image: mava
+  dockerfile: ./Dockerfile.ichor
+  context: .
+spec:
+  image: mava
+  command: make run example=examples/debugging/simple_spread/feedforward/decentralised/run_maddpg_lr_schedule.py
+  types:
+    Worker:
+      replicas: 1
+      cpus: 8
+      # optional: number of GPUs wanted
+      gpus: 0
+      # mandatory (if gpus amount is > 0): gpu type wanted
+      gpuType: nvidia.com/mig-1g.10gb
+      # mandatory (must be >= 2): RAM ratio wanted (in GB)
+      ramRatio: 2

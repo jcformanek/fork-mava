@@ -1,0 +1,42 @@
+##########################################################
+# Core Mava image
+FROM nvcr.io/nvidia/cuda:11.4.2-cudnn8-runtime-ubuntu20.04 as mava-core
+# Flag to record agents
+ARG record
+# Ensure no installs try launch interactive screen
+ARG DEBIAN_FRONTEND=noninteractive
+# Update packages
+RUN apt-get update -y && apt-get install -y python3-pip
+# Update python path
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.8 10 &&\
+    rm -rf /root/.cache && apt-get clean
+# Upgrade pip
+RUN python -m pip install --upgrade pip
+# Location of mava folder
+ARG folder=/home/app/mava
+## working directory
+WORKDIR ${folder}
+## Copy code from current path.
+COPY . /home/app/mava
+# For box2d
+RUN apt-get install swig -y
+## Install core dependencies.
+RUN python -m pip install -e .[reverb,launchpad]
+## Optional install for screen recording.
+ENV DISPLAY=:0
+RUN if [ "$record" = "true" ]; then \
+    ./bash_scripts/install_record.sh; \
+fi
+EXPOSE 6006
+##########################################################
+
+##########################################################
+# Core Mava-TF image
+FROM mava-core as tf-core
+# Tensorflow gpu config.
+ENV TF_FORCE_GPU_ALLOW_GROWTH=true
+ENV CUDA_DEVICE_ORDER=PCI_BUS_ID
+ENV TF_CPP_MIN_LOG_LEVEL=3
+## Install core tf dependencies.
+RUN python -m pip install -e .[tf]
+##########################################################
