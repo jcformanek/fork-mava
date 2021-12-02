@@ -13,64 +13,58 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+"""Example running MADQN on debug Atari Pong."""
 import functools
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 import launchpad as lp
 import sonnet as snt
 from absl import app, flags
 
-from mava.components.tf.modules.exploration.exploration_scheduling import (
+from mava.components.tf.modules.communication.broadcasted import (
+    BroadcastedCommunication,
+)
+from mava.components.tf.modules.exploration import (
     LinearExplorationScheduler,
+    apex_exploration_scheduler,
 )
 from mava.systems.tf import madqn
 from mava.utils import lp_utils
-from mava.utils.environments.flatland_utils import flatland_env_factory
+from mava.utils.enums import Network
+from mava.utils.environments import pettingzoo_utils
 from mava.utils.loggers import logger_utils
-from mava.wrappers.environment_loop_wrappers import MonitorParallelEnvironmentLoop
 
 FLAGS = flags.FLAGS
+flags.DEFINE_string(
+    "env_class", "magent", "Pettingzoo environment class, e.g. atari (str).",
+)
+flags.DEFINE_string(
+    "env_name",
+    "adversarial_pursuit_v3",
+    "Pettingzoo environment name, e.g. pong (str).",
+)
 
 flags.DEFINE_string(
     "mava_id",
     str(datetime.now()),
     "Experiment identifier that can be used to continue experiments.",
 )
-flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
-
-flatland_env_config: Dict = {
-    "n_agents": 3,
-    "x_dim": 30,
-    "y_dim": 30,
-    "n_cities": 2,
-    "max_rails_between_cities": 2,
-    "max_rails_in_city": 3,
-    "seed": 0,
-    "malfunction_rate": 1 / 200,
-    "malfunction_min_duration": 20,
-    "malfunction_max_duration": 50,
-    "observation_max_path_depth": 30,
-    "observation_tree_depth": 2,
-}
+flags.DEFINE_string("base_dir", "~/mava", "Base dir to store experiments.")
 
 
 def main(_: Any) -> None:
-    """Run program
 
-    Args:
-        _ (Any): Arguments
-    """
-
-    # Environment.
+    # environment
     environment_factory = functools.partial(
-        flatland_env_factory, env_config=flatland_env_config
+        pettingzoo_utils.make_environment,
+        env_class=FLAGS.env_class,
+        env_name=FLAGS.env_name,
     )
 
     # Networks.
     network_factory = lp_utils.partial_kwargs(
-        madqn.make_default_networks, policy_networks_layer_sizes=(128, 128)
+        madqn.make_default_networks, network_type=Network.mlp
     )
 
     # Checkpointer appends "Checkpoints" to checkpoint_dir
@@ -87,42 +81,22 @@ def main(_: Any) -> None:
         time_delta=log_every,
     )
 
-    exploration_scheduler_fn = {
-        "executor_0": {
-            "train_0": LinearExplorationScheduler(
-                epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=1e-4
-            ),
-            "train_1": LinearExplorationScheduler(
-                epsilon_start=1.0, epsilon_min=0.06, epsilon_decay=2e-4
-            ),
-            "train_2": LinearExplorationScheduler(
-                epsilon_start=1.0, epsilon_min=0.07, epsilon_decay=3e-4
-            ),
-        },
-        "executor_1": {
-            "train_0": LinearExplorationScheduler(
-                epsilon_start=1.0, epsilon_min=0.08, epsilon_decay=4e-4
-            ),
-            "train_1": LinearExplorationScheduler(
-                epsilon_start=1.0, epsilon_min=0.09, epsilon_decay=5e-4
-            ),
-            "train_2": LinearExplorationScheduler(
-                epsilon_start=1.0, epsilon_min=0.10, epsilon_decay=6e-4
-            ),
-        },
-    }
+    num_executors = 8
+
+    exploration_scheduler_fn = LinearExplorationScheduler(
+        epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=1e-4
+    )
 
     # distributed program
     program = madqn.MADQN(
         environment_factory=environment_factory,
         network_factory=network_factory,
         logger_factory=logger_factory,
-        num_executors=2,
+        num_executors=num_executors,
         exploration_scheduler_fn=exploration_scheduler_fn,
+        communication_module=BroadcastedCommunication,
+        importance_sampling_exponent=0.2,
         optimizer=snt.optimizers.Adam(learning_rate=1e-4),
-        max_executor_steps=100_000,
-        eval_loop_fn=MonitorParallelEnvironmentLoop,
-        eval_loop_fn_kwargs={"path": checkpoint_dir, "record_every": 1},
         checkpoint_subpath=checkpoint_dir,
     ).build()
 

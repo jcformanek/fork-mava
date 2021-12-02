@@ -14,7 +14,8 @@
 # limitations under the License.
 
 import abc
-from typing import Dict, Mapping
+from collections import defaultdict
+from typing import Dict, List, Mapping
 
 import numpy as np
 import tensorflow as tf
@@ -237,14 +238,119 @@ class ConstantScheduler:
         """
         return self._epsilon
 
+
 def apex_exploration_scheduler(
-        num_executors: int = 1,
-        epsilon: float = 0.4,
-        alpha: float = 7.,
-    ) -> Mapping[str, ConstantScheduler]:
+    num_executors: int = 1,
+    epsilon: float = 0.4,
+    alpha: float = 7.0,
+) -> Mapping[str, ConstantScheduler]:
+    """Returns a scheduler with a single espilon per executor.
+
+    The espilons are given by Ape-X formula
+
+    Returns:
+        Ape-X exploration scheduler exploration_scheduler_fn
+    """
     exploration_scheduler_fn: Dict = {}
     for executor_id in range(num_executors):
         executor = f"executor_{executor_id}"
-        epsilon_i = epsilon**(1 + alpha * executor_id / (num_executors-1))
+        num_executers_minus_1 = float(num_executors - 1) if num_executors > 1 else 1.0
+        epsilon_i = epsilon ** (1 + alpha * executor_id / num_executers_minus_1)
         exploration_scheduler_fn[executor] = ConstantScheduler(epsilon=epsilon_i)
+    return exploration_scheduler_fn
+
+
+def monotonic_ma_apex_exploration_scheduler(
+    agent_ids: List[str],
+    num_executors: int = 1,
+    epsilon: float = 0.4,
+    alpha: float = 7.0,
+) -> Mapping[str, Mapping[str, ConstantScheduler]]:
+    """Returns a scheduler with distinct espilons per executor and agent.
+
+    The schedulers are assigned in increasing order to all executor.
+    Within every scheduler, the espilons are randomy assigned to agents.
+
+    Returns:
+        Monotonic Multi-Agent Ape-X exploration scheduler exploration_scheduler_fn
+
+    """
+    num_agents = len(agent_ids)
+    exploration_scheduler_fn: defaultdict = defaultdict(dict)
+    num_epsilons = num_agents * num_executors
+    num_epsilons_minus_1 = float(num_epsilons - 1) if num_epsilons > 1 else 1.0
+    for executor_id in range(num_executors):
+        executor = f"executor_{executor_id}"
+        # Iterate over agents in a random order
+        executor_agents_list = np.random.choice(agent_ids, num_agents, replace=False)
+
+        for i, agent_id in enumerate(executor_agents_list):
+            eps = epsilon ** (
+                1 + alpha * (num_agents * executor_id + i) / num_epsilons_minus_1
+            )
+            exploration_scheduler_fn[executor][agent_id] = ConstantScheduler(
+                epsilon=eps
+            )
+    return exploration_scheduler_fn
+
+
+def random_ma_apex_exploration_scheduler(
+    agent_ids: List[str],
+    num_executors: int = 1,
+    epsilon: float = 0.4,
+    alpha: float = 7.0,
+) -> Mapping[str, Mapping[str, ConstantScheduler]]:
+    """Returns a scheduler with distinct espilons per executor and agent.
+
+    All epsilons are shuffled and randomly assigned to a executor/agent
+
+    Returns:
+        Random Multi-Agent Ape-X exploration scheduler exploration_scheduler_fn
+    """
+    num_agents = len(agent_ids)
+    num_epsilons = num_agents * num_executors
+    num_epsilons_minus_1 = float(num_epsilons - 1) if num_epsilons > 1 else 1.0
+    epsilons = [
+        epsilon ** (1 + alpha * i / num_epsilons_minus_1) for i in range(num_epsilons)
+    ]
+    # Random order for epsilon values
+    np.random.shuffle(epsilons)
+    exploration_scheduler_fn: defaultdict = defaultdict(dict)
+    for executor_id in range(num_executors):
+        executor = f"executor_{executor_id}"
+        for i, agent_id in enumerate(agent_ids):
+            print(type(epsilons[num_agents * executor_id + i]))
+            exploration_scheduler_fn[executor][agent_id] = ConstantScheduler(
+                epsilon=epsilons[num_agents * executor_id + i]
+            )
+    return exploration_scheduler_fn
+
+
+def gaussian_ma_apex_exploration_scheduler(
+    agent_ids: List[str],
+    num_executors: int = 1,
+    epsilon: float = 0.4,
+    alpha: float = 7.0,
+) -> Mapping[str, Mapping[str, ConstantScheduler]]:
+    """Returns a scheduler with distinct espilons per executor and agent.
+
+    All epsilons are shuffled and randomly assigned to a executor/agent
+
+    Returns:
+        Random Multi-Agent Ape-X exploration scheduler exploration_scheduler_fn
+    """
+    exploration_scheduler_fn: defaultdict = defaultdict(dict)
+    num_exectuors_minus_1 = float(num_executors - 1) if num_executors > 1 else 1.0
+    for executor_id in range(num_executors):
+        executor = f"executor_{executor_id}"
+        epsilon_i = epsilon ** (1 + alpha * executor_id / num_exectuors_minus_1)
+        sigma_i = 0.1 * (1 - epsilon ** (alpha / num_exectuors_minus_1)) * epsilon_i
+        for agent_id in agent_ids:
+            eps = np.clip(np.random.normal(epsilon_i, sigma_i), 0.0, 1.0).astype(
+                "float32"
+            )
+            print(type(eps))
+            exploration_scheduler_fn[executor][agent_id] = ConstantScheduler(
+                epsilon=eps
+            )
     return exploration_scheduler_fn
