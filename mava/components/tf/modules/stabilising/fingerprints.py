@@ -52,16 +52,19 @@ class FingerPrintStabalisation(BaseStabilisationModule):
             agent_net_key = self._architecture._agent_net_keys[agent_key]
             obs_spec = actor_obs_specs[agent_key]
 
+            dummy_observation = tf.ones(shape=obs_spec.shape, dtype=obs_spec.dtype)
+            dummy_observation_with_fingerprint = tf.concat([self._fingerprint_spec, dummy_observation], axis=0)
+
             # Create variables for value and policy networks.
             tf2_utils.create_variables(
                 self._architecture._value_networks[agent_net_key],
-                [obs_spec, self._fingerprint_spec],
+                [dummy_observation_with_fingerprint],
             )
 
             # create target value network variables
             tf2_utils.create_variables(
                 self._architecture._target_value_networks[agent_net_key],
-                [obs_spec, self._fingerprint_spec],
+                [dummy_observation_with_fingerprint],
             )
 
         actor_networks["values"] = self._architecture._value_networks

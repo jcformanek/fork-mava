@@ -139,9 +139,34 @@ class MADQNFeedForwardExecutor(FeedForwardExecutor, DQNExecutor):
         self._action_selectors = action_selectors
         self._trainer = trainer
         self._agent_net_keys = agent_net_keys
-        self._fingerprint = fingerprint
         self._evaluator = evaluator
         self._interval = interval
+
+        self._fingerprint = fingerprint
+        self._trainer_steps_factor = 1e6 # NOTE we divide the trainer steps by a big number for stability
+
+    def _add_agent_fingerprint_to_observation(self, agent: str, olt_observation: OLT):
+        observation = olt_observation.observation
+        trainer_step = self._trainer.get_trainer_steps() / self._trainer_steps_factor
+        agent_epsilon = self._action_selectors[agent].get_epsilon()
+        fingerprint = tf.concat([agent_epsilon, trainer_step], axis=0)
+        fingerprint = tf.cast(fingerprint, "float32")
+        observation_with_fingerprint = tf.concat([fingerprint, observation], axis=0)
+        new_olt_observation = OLT(
+            observation=observation_with_fingerprint,
+            legal_actions=olt_observation.legal_actions,
+            terminal=olt_observation.terminal
+        )
+        return new_olt_observation
+
+    def _get_fingerprints_for_adder(self):
+        fingerprints = {}
+        trainer_step = self._trainer.get_trainer_steps() / self._trainer_steps_factor
+        for agent, action_selector in self._action_selectors.items():
+            agent_epsilon = action_selector.get_epsilon()
+            agent_fingerprint = np.array([agent_epsilon, trainer_step], dtype=np.float)
+            fingerprints[agent] = agent_fingerprint
+        return fingerprints
 
     @tf.function
     def _policy(
@@ -149,7 +174,6 @@ class MADQNFeedForwardExecutor(FeedForwardExecutor, DQNExecutor):
         agent: str,
         observation: types.NestedTensor,
         legal_actions: types.NestedTensor,
-        fingerprint: Optional[tf.Tensor] = None,
     ) -> types.NestedTensor:
         """Agent specific policy function
 
@@ -174,10 +198,7 @@ class MADQNFeedForwardExecutor(FeedForwardExecutor, DQNExecutor):
 
         # Compute the policy, conditioned on the observation and
         # possibly the fingerprint.
-        if fingerprint is not None:
-            q_values = self._q_networks[agent_net_key](batched_observation, fingerprint)
-        else:
-            q_values = self._q_networks[agent_net_key](batched_observation)
+        q_values = self._q_networks[agent_net_key](batched_observation)
 
         action = self._action_selectors[agent](
             action_values=q_values, legal_actions_mask=batched_legals
@@ -200,18 +221,12 @@ class MADQNFeedForwardExecutor(FeedForwardExecutor, DQNExecutor):
         """
 
         if self._fingerprint:
-            trainer_step = self._trainer.get_trainer_steps()
-            fingerprint = tf.concat([self._get_epsilon(), trainer_step], axis=0)
-            fingerprint = tf.expand_dims(fingerprint, axis=0)
-            fingerprint = tf.cast(fingerprint, "float32")
-        else:
-            fingerprint = None
+            observation = self._add_agent_fingerprint_to_observation(agent, observation)
 
         action = self._policy(
             agent=agent,
             observation=observation.observation,
             legal_actions=observation.legal_actions,
-            fingerprint=fingerprint,
         )
 
         action = tf2_utils.to_numpy_squeeze(action)
@@ -233,10 +248,7 @@ class MADQNFeedForwardExecutor(FeedForwardExecutor, DQNExecutor):
         """
 
         if self._fingerprint and self._trainer is not None:
-            epsilon = self._get_epsilon()
-            trainer_step = self._trainer.get_trainer_steps()
-            fingerprint = np.array([epsilon, trainer_step])
-            extras.update({"fingerprint": fingerprint})
+            extras["fingerprints"] = self._get_fingerprints_for_adder()
 
         if self._adder:
             self._adder.add_first(timestep, extras)
@@ -258,10 +270,7 @@ class MADQNFeedForwardExecutor(FeedForwardExecutor, DQNExecutor):
         """
 
         if self._fingerprint and self._trainer is not None:
-            trainer_step = self._trainer.get_trainer_steps()
-            epsilon = self._get_epsilon()
-            fingerprint = np.array([epsilon, trainer_step])
-            next_extras.update({"fingerprint": fingerprint})
+            next_extras["fingerprints"] = self._get_fingerprints_for_adder()
 
         if self._adder:
             self._adder.add(actions, next_timestep, next_extras)

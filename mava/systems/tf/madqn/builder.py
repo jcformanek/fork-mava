@@ -157,7 +157,7 @@ class MADQNBuilder:
         if issubclass(self._executor_fn, executors.FeedForwardExecutor):
             # Check if we should use fingerprints
             if self._replay_stabiliser_fn is not None:
-                self._extra_specs.update({"fingerprint": np.array([1.0, 1.0])})
+                self._extra_specs["fingerprints"] = {agent: np.array([1.0, 1.0]) for agent in self._agents}
             adder_sig = reverb_adders.ParallelNStepTransitionAdder.signature(
                 environment_spec, self._extra_specs
             )

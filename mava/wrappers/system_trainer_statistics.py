@@ -153,6 +153,11 @@ class DetailedTrainerStatistics(TrainerStatisticsBase):
 
                 self._network_loggers[network].write(network_running_statistics)
 
+    # NOTE (Claude) Launchpad can't see this method unless I expose it like this.
+    # Not sure why this is the case TODO find a fix.
+    def get_trainer_steps(self):
+        return self._trainer.get_trainer_steps()
+
 
 class ScaledTrainerStatisticsBase(TrainerWrapperBase):
     def __init__(

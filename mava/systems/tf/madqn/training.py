@@ -391,21 +391,19 @@ class MADQNTrainer(mava.Trainer):
                 )
 
                 if self._fingerprint:
-                    f_tm1 = e_tm1["fingerprint"]
+                    f_tm1 = e_tm1["fingerprints"][agent]
                     f_tm1 = tf.convert_to_tensor(f_tm1)
                     f_tm1 = tf.cast(f_tm1, "float32")
+                    o_tm1_feed = tf.concat([f_tm1, o_tm1_feed], axis=-1)
 
-                    f_t = e_t["fingerprint"]
+                    f_t = e_t["fingerprints"][agent]
                     f_t = tf.convert_to_tensor(f_t)
                     f_t = tf.cast(f_t, "float32")
+                    o_t_feed = tf.concat([f_t, o_t_feed], axis=-1)
 
-                    q_tm1 = self._q_networks[agent_key](o_tm1_feed, f_tm1)
-                    q_t_value = self._target_q_networks[agent_key](o_t_feed, f_t)
-                    q_t_selector = self._q_networks[agent_key](o_t_feed, f_t)
-                else:
-                    q_tm1 = self._q_networks[agent_key](o_tm1_feed)
-                    q_t_value = self._target_q_networks[agent_key](o_t_feed)
-                    q_t_selector = self._q_networks[agent_key](o_t_feed)
+                q_tm1 = self._q_networks[agent_key](o_tm1_feed)
+                q_t_value = self._target_q_networks[agent_key](o_t_feed)
+                q_t_selector = self._q_networks[agent_key](o_t_feed)
 
                 # Q-network learning
                 loss, loss_extras = trfl.double_qlearning(
