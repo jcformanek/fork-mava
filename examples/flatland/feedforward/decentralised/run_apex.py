@@ -33,9 +33,11 @@ from mava.wrappers.environment_loop_wrappers import MonitorParallelEnvironmentLo
 
 FLAGS = flags.FLAGS
 
+epsilon = 0.4
+alpha = 7.0
 flags.DEFINE_string(
     "mava_id",
-    str(datetime.now()),
+    "apex-epsilon={:.2f}-alpha={:.2f}-".format(epsilon, alpha) + str(datetime.now()),
     "Experiment identifier that can be used to continue experiments.",
 )
 flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
@@ -74,7 +76,7 @@ def main(_: Any) -> None:
     )
 
     # Checkpointer appends "Checkpoints" to checkpoint_dir
-    checkpoint_dir = f"{FLAGS.base_dir}/apex-{FLAGS.mava_id}"
+    checkpoint_dir = f"{FLAGS.base_dir}/{FLAGS.mava_id}"
 
     # Log every [log_every] seconds.
     log_every = 10
@@ -88,7 +90,10 @@ def main(_: Any) -> None:
     )
 
     num_executors = 8
-    exploration_scheduler_fn = apex_exploration_scheduler(num_executors=num_executors)
+    exploration_scheduler_fn = apex_exploration_scheduler(
+        num_executors=num_executors, epsilon=epsilon, alpha=alpha
+    )
+    exploration_scheduler_fn = exploration_scheduler_fn
 
     # distributed program
     program = madqn.MADQN(
@@ -98,10 +103,10 @@ def main(_: Any) -> None:
         num_executors=num_executors,
         exploration_scheduler_fn=exploration_scheduler_fn,
         optimizer=snt.optimizers.Adam(learning_rate=1e-4),
-        max_executor_steps=100_000,
+        max_executor_steps=300_000,
         checkpoint_subpath=checkpoint_dir,
-        eval_loop_fn=MonitorParallelEnvironmentLoop,
-        eval_loop_fn_kwargs={"path": checkpoint_dir, "record_every": 1},
+        # eval_loop_fn=MonitorParallelEnvironmentLoop,
+        # eval_loop_fn_kwargs={"path": checkpoint_dir, "record_every": 1},
     ).build()
 
     # Ensure only trainer runs on gpu, while other processes run on cpu.
