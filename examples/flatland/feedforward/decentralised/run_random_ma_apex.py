@@ -34,9 +34,18 @@ from mava.wrappers.environment_loop_wrappers import MonitorParallelEnvironmentLo
 
 FLAGS = flags.FLAGS
 
+epsilon = 0.4
+alpha = 7.0
+
+# epsilons = [0.2, 0.3, 0.4, 0.5, 0.6]
+# alphas = [5.0, 6.0, 7.0, 8.0, 9.0]
+# epsilon = np.random.choice(epsilons)
+# alpha = np.random.choice(alphas)
+
 flags.DEFINE_string(
     "mava_id",
-    str(datetime.now()),
+    "random-apex-epsilon={:.2f}-alpha={:.2f}-".format(epsilon, alpha)
+    + str(datetime.now()),
     "Experiment identifier that can be used to continue experiments.",
 )
 flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
@@ -98,7 +107,7 @@ def main(_: Any) -> None:
 
     num_executors = 8
     exploration_scheduler_fn = random_ma_apex_exploration_scheduler(
-        agent_ids=agents, num_executors=num_executors
+        agent_ids=agents, num_executors=num_executors, epsilon=epsilon, alpha=alpha
     )
 
     # distributed program
