@@ -118,7 +118,11 @@ def main(_: Any) -> None:
 
     num_executors = 8
     exploration_scheduler_fn = gaussian_ma_apex_exploration_scheduler(
-        agent_ids=agents, num_executors=num_executors
+        agent_ids=agents,
+        num_executors=num_executors,
+        epsilon=epsilon,
+        alpha=alpha,
+        sigma_coeff=sigma_coeff,
     )
 
     # distributed program
