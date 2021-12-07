@@ -44,9 +44,11 @@ RUN python -m pip install -e .[tf]
 ##########################################################
 # PZ image
 FROM tf-core AS pz
+ENV DEBIAN_FRONTEND=noninteractive
 RUN python -m pip install -e .[pz]
 # PettingZoo Atari envs
 RUN apt-get update
+RUN apt-get install tzdata -y
 RUN apt-get install ffmpeg libsm6 libxext6  -y
 RUN apt-get install -y unrar-free
 RUN python -m pip install autorom
@@ -73,6 +75,7 @@ RUN python -m pip install -e .[flatland]
 ##########################################################
 ## Robocup Image
 FROM tf-core AS robocup
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get install sudo -y
 RUN ./bash_scripts/install_robocup.sh
 ##########################################################

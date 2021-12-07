@@ -1,8 +1,11 @@
 operator: tf
 docker:
   image: mava
-  dockerfile: ./Dockerfile.ichor
+  dockerfile: ./Dockerfile
   context: .
+  target: tf-core
+  buildArgs:
+    record: ""
 spec:
   image: mava
   command: python examples/debugging/simple_spread/feedforward/decentralised/run_maddpg_lr_schedule.py --base_dir /home/app/mava/logs/
@@ -13,6 +16,6 @@ spec:
       # optional: number of GPUs wanted
       gpus: 0
       # mandatory (if gpus amount is > 0): gpu type wanted
-      gpuType: nvidia.com/mig-1g.10gb
+      gpuType: gpu
       # mandatory (must be >= 2): RAM ratio wanted (in GB)
       ramRatio: 2
