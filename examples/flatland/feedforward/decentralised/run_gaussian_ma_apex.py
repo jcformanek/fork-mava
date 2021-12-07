@@ -103,7 +103,7 @@ def main(_: Any) -> None:
     )
 
     # Checkpointer appends "Checkpoints" to checkpoint_dir
-    checkpoint_dir = f"{FLAGS.base_dir}/gaussian-apex-{FLAGS.mava_id}"
+    checkpoint_dir = f"{FLAGS.base_dir}/{FLAGS.mava_id}"
 
     # Log every [log_every] seconds.
     log_every = 10
@@ -133,7 +133,7 @@ def main(_: Any) -> None:
         num_executors=num_executors,
         exploration_scheduler_fn=exploration_scheduler_fn,
         optimizer=snt.optimizers.Adam(learning_rate=1e-4),
-        max_executor_steps=100_000,
+        max_executor_steps=300_000,
         checkpoint_subpath=checkpoint_dir,
         eval_loop_fn=MonitorParallelEnvironmentLoop,
         eval_loop_fn_kwargs={"path": checkpoint_dir, "record_every": 1},
