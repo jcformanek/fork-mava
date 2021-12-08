@@ -47,19 +47,12 @@ sigma_coeff = 0.5
 
 flags.DEFINE_string(
     "mava_id",
-    "gaussian-apex-epsilon={:.2f}-alpha={:.2f}-sigma_coeff=-{:.2f}".format(
+    "gaussian-apex-epsilon={:.2f}-alpha={:.2f}-sigma_coeff={:.2f}-".format(
         epsilon, alpha, sigma_coeff
     )
     + str(datetime.now()),
     "Experiment identifier that can be used to continue experiments.",
 )
-
-flags.DEFINE_string(
-    "mava_id",
-    str(datetime.now()),
-    "Experiment identifier that can be used to continue experiments.",
-)
-flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
 
 flatland_env_config: Dict = {
     "n_agents": 3,
