@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 import launchpad as lp
+import numpy as np
 import sonnet as snt
 from absl import app, flags
 
@@ -36,14 +37,14 @@ FLAGS = flags.FLAGS
 
 epsilon = 0.4
 alpha = 7.0
-sigma_coeff = 0.5
+# sigma_coeff = 0.5
 
 # epsilons = [0.2, 0.3, 0.4, 0.5, 0.6]
 # alphas = [5.0, 6.0, 7.0, 8.0, 9.0]
-# sigma_coeffs = [0.3, 0.4, 0.5, 0.7, 0.9]
+sigma_coeffs = [0.1, 0.2, 0.3]
 # epsilon = np.random.choice(epsilons)
 # alpha = np.random.choice(alphas)
-# sigma_coeff = np.random.choice(sigma_coeffs)
+sigma_coeff = np.random.choice(sigma_coeffs)
 
 flags.DEFINE_string(
     "mava_id",
