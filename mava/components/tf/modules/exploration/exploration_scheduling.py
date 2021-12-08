@@ -67,9 +67,7 @@ class LinearExplorationScheduler(BaseExplorationScheduler):
     ):
         """Decays epsilon linearly to epsilon_min."""
         super(LinearExplorationScheduler, self).__init__(
-            epsilon_start,
-            epsilon_min,
-            epsilon_decay,
+            epsilon_start, epsilon_min, epsilon_decay,
         )
 
     def decrement_epsilon(self) -> float:
@@ -91,9 +89,7 @@ class ExponentialExplorationScheduler(BaseExplorationScheduler):
     ):
         """Decays epsilon exponentially to epsilon_min."""
         super(ExponentialExplorationScheduler, self).__init__(
-            epsilon_start,
-            epsilon_min,
-            epsilon_decay,
+            epsilon_start, epsilon_min, epsilon_decay,
         )
 
     def decrement_epsilon(self) -> float:
@@ -155,9 +151,7 @@ class LinearExplorationTimestepScheduler(BaseExplorationTimestepScheduler):
     ):
         """Decays epsilon linearly to epsilon_min, in epsilon_decay_steps."""
         super(LinearExplorationTimestepScheduler, self).__init__(
-            epsilon_decay_steps,
-            epsilon_start,
-            epsilon_min,
+            epsilon_decay_steps, epsilon_start, epsilon_min,
         )
 
         self._delta = (
@@ -187,9 +181,7 @@ class ExponentialExplorationTimestepScheduler(BaseExplorationTimestepScheduler):
     ):
         """Decays epsilon exponentially to epsilon_min, in epsilon_decay_steps."""
         super(ExponentialExplorationTimestepScheduler, self).__init__(
-            epsilon_decay_steps,
-            epsilon_start,
-            epsilon_min,
+            epsilon_decay_steps, epsilon_start, epsilon_min,
         )
 
         self._exp_scaling = (
@@ -240,9 +232,7 @@ class ConstantScheduler:
 
 
 def apex_exploration_scheduler(
-    num_executors: int = 1,
-    epsilon: float = 0.4,
-    alpha: float = 7.0,
+    num_executors: int = 1, epsilon: float = 0.4, alpha: float = 7.0,
 ) -> Mapping[str, ConstantScheduler]:
     """Returns a scheduler with a single espilon per executor.
 
@@ -319,7 +309,6 @@ def random_ma_apex_exploration_scheduler(
     for executor_id in range(num_executors):
         executor = f"executor_{executor_id}"
         for i, agent_id in enumerate(agent_ids):
-            print(type(epsilons[num_agents * executor_id + i]))
             exploration_scheduler_fn[executor][agent_id] = ConstantScheduler(
                 epsilon=epsilons[num_agents * executor_id + i]
             )
@@ -331,6 +320,7 @@ def gaussian_ma_apex_exploration_scheduler(
     num_executors: int = 1,
     epsilon: float = 0.4,
     alpha: float = 7.0,
+    sigma_coeff: float = 1.0,
 ) -> Mapping[str, Mapping[str, ConstantScheduler]]:
     """Returns a scheduler with distinct espilons per executor and agent.
 
@@ -344,12 +334,13 @@ def gaussian_ma_apex_exploration_scheduler(
     for executor_id in range(num_executors):
         executor = f"executor_{executor_id}"
         epsilon_i = epsilon ** (1 + alpha * executor_id / num_exectuors_minus_1)
-        sigma_i = 0.1 * (1 - epsilon ** (alpha / num_exectuors_minus_1)) * epsilon_i
+        sigma_i = (
+            sigma_coeff * (1 - epsilon ** (alpha / num_exectuors_minus_1)) * epsilon_i
+        )
         for agent_id in agent_ids:
             eps = np.clip(np.random.normal(epsilon_i, sigma_i), 0.0, 1.0).astype(
                 "float32"
             )
-            print(type(eps))
             exploration_scheduler_fn[executor][agent_id] = ConstantScheduler(
                 epsilon=eps
             )
