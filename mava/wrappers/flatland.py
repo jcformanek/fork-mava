@@ -28,6 +28,7 @@ try:
     from flatland.envs.observations import GlobalObsForRailEnv, Node, TreeObsForRailEnv
     from flatland.envs.rail_env import RailEnv
     from flatland.utils.rendertools import AgentRenderVariant, RenderTool
+    from flatland.envs.step_utils.states import TrainState
 except ModuleNotFoundError:
     pass
 from gym.spaces import Discrete
@@ -140,6 +141,28 @@ class FlatlandEnvWrapper(ParallelEnvWrapper):
         """Return list of all possible agents."""
         return self._possible_agents
 
+    def _update_stats(self, info, rewards):
+        episode_return = sum(list(rewards.values()))
+        tasks_finished = sum(
+            [1 if state == TrainState.DONE else 0 for state in info["state"].values()]
+        )
+        completion = tasks_finished / len(self._agents)
+        normalized_score = episode_return / (
+            self._environment._max_episode_steps * len(self._agents)
+        )
+
+        self._latest_score = normalized_score
+        self._latest_completion = completion
+
+    def get_stats(self):
+        if self._latest_completion is not None and self._latest_score is not None:
+            return {
+                "score": self._latest_score,
+                "completion": self._latest_completion,
+            }
+        else:
+            return {}
+
     def render(self, mode: str = "human") -> np.array:
         """Renders the environment."""
         if mode == "human":
@@ -225,6 +248,7 @@ class FlatlandEnvWrapper(ParallelEnvWrapper):
                 )  # Zero discount on final step
                 for agent in self.possible_agents
             }
+            self._update_stats(infos, rewards)
             # TODO (Claude) zero discount!
         else:
             self._step_type = dm_env.StepType.MID
