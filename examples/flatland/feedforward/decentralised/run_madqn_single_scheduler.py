@@ -36,10 +36,11 @@ FLAGS = flags.FLAGS
 
 print("FLAGS", FLAGS)
 
-epsilon_mins = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10]
+# epsilon_mins = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10]
 epsilon_decays = [1e-4, 2e-4, 3e-4, 4e-4, 5e-4, 6e-4, 7e-4, 8e-4, 9e-4]
 
-epsilon_min = np.random.choice(epsilon_mins)
+# epsilon_min = np.random.choice(epsilon_mins)
+epsilon_min = 0.01
 epsilon_decay = np.random.choice(epsilon_decays)
 
 
@@ -54,7 +55,7 @@ flags.DEFINE_string(
 flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
 
 flatland_env_config: Dict = {
-    "n_agents": 3,
+    "n_agents": 5,
     "x_dim": 30,
     "y_dim": 30,
     "n_cities": 2,
