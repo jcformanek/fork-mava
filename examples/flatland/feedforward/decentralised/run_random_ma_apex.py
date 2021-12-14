@@ -51,7 +51,7 @@ flags.DEFINE_string(
 flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
 
 flatland_env_config: Dict = {
-    "n_agents": 5,
+    "n_agents": 7,
     "x_dim": 30,
     "y_dim": 30,
     "n_cities": 2,
