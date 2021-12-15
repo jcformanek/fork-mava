@@ -57,7 +57,7 @@ flags.DEFINE_string(
 flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
 
 flatland_env_config: Dict = {
-    "n_agents": 7,
+    "n_agents": 10,
     "x_dim": 30,
     "y_dim": 30,
     "n_cities": 2,
@@ -136,7 +136,7 @@ def main(_: Any) -> None:
 
     # Ensure only trainer runs on gpu, while other processes run on cpu.
     local_resources = lp_utils.to_device(
-        program_nodes=program.groups.keys(), nodes_on_gpu=["trainer"]
+        program_nodes=program.groups.keys(), nodes_on_gpu=[]
     )
 
     # Launch.
