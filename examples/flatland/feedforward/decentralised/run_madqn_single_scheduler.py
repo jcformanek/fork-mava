@@ -36,9 +36,9 @@ FLAGS = flags.FLAGS
 
 print("FLAGS", FLAGS)
 
+n_agents = 10
 # epsilon_mins = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10]
 epsilon_decays = [1e-4, 2e-4, 3e-4, 4e-4, 5e-4, 6e-4, 7e-4, 8e-4, 9e-4]
-
 # epsilon_min = np.random.choice(epsilon_mins)
 epsilon_min = 0.01
 epsilon_decay = np.random.choice(epsilon_decays)
@@ -46,8 +46,8 @@ epsilon_decay = np.random.choice(epsilon_decays)
 
 flags.DEFINE_string(
     "mava_id",
-    "madqn-single-epsilon-epsilon_min={:.2f}-epsilon_decay={:.4f}-".format(
-        epsilon_min, epsilon_decay
+    "n_agents={}-madqn-single-epsilon-epsilon_min={:.2f}-epsilon_decay={:.4f}-".format(
+        n_agents, epsilon_min, epsilon_decay
     )
     + str(datetime.now()),
     "Experiment identifier that can be used to continue experiments.",
@@ -55,7 +55,7 @@ flags.DEFINE_string(
 flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
 
 flatland_env_config: Dict = {
-    "n_agents": 10,
+    "n_agents": n_agents,
     "x_dim": 30,
     "y_dim": 30,
     "n_cities": 2,

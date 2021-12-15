@@ -35,6 +35,7 @@ from mava.wrappers.environment_loop_wrappers import MonitorParallelEnvironmentLo
 
 FLAGS = flags.FLAGS
 
+n_agents = 10
 epsilon = 0.4
 alpha = 7.0
 # sigma_coeff = 0.5
@@ -48,8 +49,8 @@ sigma_coeff = np.random.choice(sigma_coeffs)
 
 flags.DEFINE_string(
     "mava_id",
-    "gaussian-apex-epsilon={:.2f}-alpha={:.2f}-sigma_coeff={:.2f}-".format(
-        epsilon, alpha, sigma_coeff
+    "n_agents={}-gaussian-apex-epsilon={:.2f}-alpha={:.2f}-sigma_coeff={:.2f}-".format(
+        n_agents, epsilon, alpha, sigma_coeff
     )
     + str(datetime.now()),
     "Experiment identifier that can be used to continue experiments.",
@@ -57,7 +58,7 @@ flags.DEFINE_string(
 flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
 
 flatland_env_config: Dict = {
-    "n_agents": 10,
+    "n_agents": n_agents,
     "x_dim": 30,
     "y_dim": 30,
     "n_cities": 2,

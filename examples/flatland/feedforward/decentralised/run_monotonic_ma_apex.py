@@ -35,6 +35,7 @@ from mava.wrappers.environment_loop_wrappers import MonitorParallelEnvironmentLo
 
 FLAGS = flags.FLAGS
 
+n_agents = 10
 epsilon = 0.4
 alpha = 7.0
 
@@ -45,14 +46,16 @@ alpha = 7.0
 
 flags.DEFINE_string(
     "mava_id",
-    "monotonic-apex-epsilon={:.2f}-alpha={:.2f}-".format(epsilon, alpha)
+    "n_agents={}-monotonic-apex-epsilon={:.2f}-alpha={:.2f}-".format(
+        n_agents, epsilon, alpha
+    )
     + str(datetime.now()),
     "Experiment identifier that can be used to continue experiments.",
 )
 flags.DEFINE_string("base_dir", "./logs", "Base dir to store experiments.")
 
 flatland_env_config: Dict = {
-    "n_agents": 10,
+    "n_agents": n_agents,
     "x_dim": 30,
     "y_dim": 30,
     "n_cities": 2,
