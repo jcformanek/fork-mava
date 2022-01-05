@@ -27,7 +27,10 @@ from mava.components.tf.modules.exploration.exploration_scheduling import (
 )
 from mava.systems.tf import madqn
 from mava.utils import lp_utils
-from mava.utils.environments.meltingpot_utils import EnvironmentFactory
+from mava.utils.environments.meltingpot_utils import (
+    EnvironmentFactory,
+    scenarios_for_substrate,
+)
 from mava.utils.loggers import logger_utils
 
 FLAGS = flags.FLAGS
@@ -41,14 +44,10 @@ flags.DEFINE_string("base_dir", "~/mava", "Base dir to store experiments.")
 flags.DEFINE_string("substrate", "clean_up", "substrate to train on.")
 
 
-def main(_: Any) -> None:
-    """Train on substrate
-
-    Args:
-        _ (Any): ...
-    """
-    # Environment.
-    environment_factory = EnvironmentFactory(substrate=FLAGS.substrate)
+def train_on_substrate() -> None:
+    """Trains on the specified substrate"""
+    # Substrate Environment.
+    substrate_environment_factory = EnvironmentFactory(substrate=FLAGS.substrate)
 
     # Networks.
     network_factory = lp_utils.partial_kwargs(madqn.make_default_networks)
@@ -69,7 +68,7 @@ def main(_: Any) -> None:
 
     # distributed program
     program = madqn.MADQN(
-        environment_factory=environment_factory,
+        environment_factory=substrate_environment_factory,
         network_factory=network_factory,
         logger_factory=logger_factory,
         num_executors=1,
@@ -93,6 +92,28 @@ def main(_: Any) -> None:
         terminal="current_terminal",
         local_resources=local_resources,
     )
+
+
+def test_on_scenarios() -> None:
+    """Tests the system on all the scenarios associated with the specified substrate"""
+    scenarios = scenarios_for_substrate(FLAGS.substrate)
+    for scenario in scenarios:
+        test_on_scenario(scenario)
+
+
+def test_on_scenario(scenario_name: str) -> None:
+    """Tests the system on a given scenario"""
+    pass
+
+
+def main(_: Any) -> None:
+    """Train on substrate
+
+    Args:
+        _ (Any): ...
+    """
+    train_on_substrate()
+    test_on_scenarios()
 
 
 if __name__ == "__main__":

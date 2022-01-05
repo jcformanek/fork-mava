@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Union
+from typing import Any, List, Union
 
 try:
     from meltingpot.python import scenario, substrate  # type: ignore
@@ -90,6 +90,21 @@ class EnvironmentFactory:
         """
         env = self._env_fn()  # type: ignore
         return env
+
+
+def scenarios_for_substrate(substrate_name: str) -> List[str]:
+    """Selects appropriate scenarios for a given substrate
+
+    Args:
+        substrate_name (str): name of substrate
+
+    Returns:
+        List[str]: a list of scenario names
+    """
+    scenarios = [
+        scenario for scenario in list(AVAILABLE_SCENARIOS) if substrate_name in scenario
+    ]
+    return scenarios
 
 
 def load_substrate(substrate_name: str) -> Substrate:
