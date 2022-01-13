@@ -27,7 +27,7 @@ from mava.components.tf.modules.exploration.exploration_scheduling import (
 )
 from mava.systems.tf import madqn
 from mava.utils import lp_utils
-from mava.utils.environments.meltingpot_utils import EnvironmentFactory
+from mava.utils.environments.meltingpot_utils.env_utils import EnvironmentFactory
 from mava.utils.loggers import logger_utils
 
 FLAGS = flags.FLAGS

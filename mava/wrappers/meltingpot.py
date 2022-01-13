@@ -26,8 +26,6 @@ from mava import types
 from mava.wrappers.env_wrappers import ParallelEnvWrapper
 
 try:
-    import pygame  # type: ignore
-
     from meltingpot.python.scenario import Scenario  # type: ignore
     from meltingpot.python.substrate import Substrate  # type: ignore
 except ModuleNotFoundError:
@@ -223,6 +221,8 @@ class MeltingpotEnvWrapper(ParallelEnvWrapper):
             if mode == "human":
                 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
                 if self._screen is None:
+                    import pygame
+
                     pygame.init()
                     self._screen = pygame.display.set_mode(  # type: ignore
                         (screen_width * scale, screen_height * scale)
