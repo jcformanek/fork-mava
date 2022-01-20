@@ -214,7 +214,7 @@ class MeltingpotEnvWrapper(ParallelEnvWrapper):
         Returns:
             [np.ndarray]: an image array for mode, rgb_array
         """
-        if self._env_image:
+        if self._env_image is not None:
             image = self._env_image
             height, width, _ = image.shape
             scale = min(screen_height // height, screen_width // width)
