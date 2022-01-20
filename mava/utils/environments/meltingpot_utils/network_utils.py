@@ -1,12 +1,11 @@
-from typing import Dict, List, Optional, Sequence, Union
+from typing import Dict, List, Optional
 
 import sonnet as snt
 import tensorflow as tf
 
 from mava import specs as mava_specs
-from mava.components.tf import networks
 from mava.components.tf.networks.epsilon_greedy import EpsilonGreedy
-from mava.utils.enums import ArchitectureType, Network
+from mava.utils.enums import ArchitectureType
 
 
 class MeltingPotConvNet(snt.Module):
@@ -52,20 +51,45 @@ class MeltingPotConvNet(snt.Module):
         self._network = snt.Sequential(all_layers)
 
     def __call__(self, inputs: tf.Tensor) -> tf.Tensor:
+        """Forward pass
+
+        Args:
+            inputs (tf.Tensor): Input tensor
+
+        Returns:
+            tf.Tensor: Output tensor
+        """
         return self._network(inputs)
 
 
 def make_default_madqn_networks(
     environment_spec: mava_specs.MAEnvironmentSpec,
     agent_net_keys: Dict[str, str],
-):
+    archecture_type: ArchitectureType = ArchitectureType.feedforward,
+) -> Dict[str, snt.Module]:
+    """Returns a network for madqn for melting pot envs
+
+    Args:
+        environment_spec (mava_specs.MAEnvironmentSpec): The environment specification
+        agent_net_keys (Dict[str, str]): specifies networks for agent types
+        archecture_type (ArchitectureType, optional): network architecture, recurrent or
+            feedforward. Defaults to ArchitectureType.feedforward.
+
+    Returns:
+        Dict[str, snt.Module]: agent networks
+    """
     specs = environment_spec.get_agent_specs()
     specs = {agent_net_keys[key]: specs[key] for key in specs.keys()}
     q_networks = {}
     action_selectors = {}
     for key in specs.keys():
         num_dimensions = specs[key].actions.num_values
-        network = snt.Sequential([MeltingPotConvNet(), snt.Linear(num_dimensions)])
+        if archecture_type == ArchitectureType.recurrent:
+            network = snt.DeepRNN(
+                [MeltingPotConvNet(), snt.LSTM(128), snt.Linear(num_dimensions)]
+            )
+        else:
+            network = snt.Sequential([MeltingPotConvNet(), snt.Linear(num_dimensions)])
         q_networks[key] = network
         action_selectors[key] = EpsilonGreedy
 
