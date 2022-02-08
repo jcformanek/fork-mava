@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """MADQN system implementation."""
-
 import functools
 from typing import Any, Callable, Dict, List, Mapping, Optional, Type, Union
 
@@ -52,9 +51,6 @@ from mava.wrappers import DetailedPerAgentStatistics
 
 class MADQN:
     """MADQN system."""
-
-    """TODO: Implement faster adders to speed up training times when
-    using multiple trainers with non-shared weights."""
 
     def __init__(  # noqa
         self,
@@ -106,8 +102,9 @@ class MADQN:
         termination_condition: Optional[Dict[str, int]] = None,
         evaluator_interval: Optional[dict] = None,
         learning_rate_scheduler_fn: Optional[Dict[str, Callable[[int], None]]] = None,
+        seed: Optional[int] = None,
     ):
-        """Initialise the system
+        """Initialise the system.
 
         Args:
             environment_factory: function to
@@ -190,13 +187,11 @@ class MADQN:
                 happen at every timestep.
                 E.g. to evaluate a system after every 100 executor episodes,
                 evaluator_interval = {"executor_episodes": 100}.
-            learning_rate_scheduler_fn: dict with two functions/classes (one for the
-                policy and one for the critic optimizer), that takes in a trainer
-                step t and returns the current learning rate,
-                e.g. {"policy": policy_lr_schedule ,"critic": critic_lr_schedule}.
-                See
-                examples/debugging/simple_spread/feedforward/decentralised/run_maddpg_lr_schedule.py
-                for an example.
+            learning_rate_scheduler_fn: an optional learning rate scheduler for
+                the value function optimiser.
+            seed: seed for reproducible sampling (used for epsilon
+                greedy action selection).
+
         """
 
         if not environment_spec:
@@ -368,6 +363,7 @@ class MADQN:
         self._eval_loop_fn = eval_loop_fn
         self._eval_loop_fn_kwargs = eval_loop_fn_kwargs
         self._evaluator_interval = evaluator_interval
+        self._seed = seed
 
         extra_specs = {}
         if issubclass(executor_fn, executors.RecurrentExecutor):
@@ -416,7 +412,7 @@ class MADQN:
         )
 
     def _get_extra_specs(self) -> Any:
-        """Helper to establish specs for extra information
+        """Helper to establish specs for extra information.
 
         Returns:
             Dictionary containing extra specs
@@ -438,7 +434,7 @@ class MADQN:
         return {"core_states": core_state_specs, "zero_padding_mask": np.array(1)}
 
     def replay(self) -> Any:
-        """Step counter
+        """Step counter.
 
         Args:
             checkpoint: whether to checkpoint the counter.
@@ -508,6 +504,7 @@ class MADQN:
             adder=self._builder.make_adder(replay),
             variable_source=variable_source,
             evaluator=False,
+            seed=self._seed,
         )
 
         # TODO (Arnu): figure out why factory function are giving type errors
@@ -562,6 +559,7 @@ class MADQN:
                 for agent in self._environment_spec.get_agent_ids()
             },
             variable_source=variable_source,
+            seed=self._seed,
         )
 
         # Make the environment.
@@ -593,7 +591,7 @@ class MADQN:
         replay: reverb.Client,
         variable_source: MavaVariableSource,
     ) -> mava.core.Trainer:
-        """System trainer
+        """System trainer.
 
         Args:
             trainer_id: Id of the trainer being created.

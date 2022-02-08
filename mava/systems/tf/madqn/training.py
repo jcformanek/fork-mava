@@ -15,7 +15,6 @@
 
 
 """MADQN trainer implementation."""
-
 import copy
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -40,7 +39,7 @@ train_utils.set_growing_gpu_memory()
 class MADQNTrainer(mava.Trainer):
     """MADQN trainer.
 
-    This is the trainer component of a MADDPG system. IE it takes a dataset as input
+    This is the trainer component of a MADQN system. IE it takes a dataset as input
     and implements update functionality to learn from this dataset.
     """
 
@@ -210,7 +209,9 @@ class MADQNTrainer(mava.Trainer):
     def _transform_observations(
         self, obs: Dict[str, mava_types.OLT], next_obs: Dict[str, mava_types.OLT]
     ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-        """Transform the observations using the observation networks of each agent."
+        """Transform the observations using the observation networks of each agent.
+
+        We assume the observation network is non-recurrent.
 
         Args:
             obs: observations at timestep t-1
@@ -234,10 +235,11 @@ class MADQNTrainer(mava.Trainer):
             o_t[agent] = tree.map_structure(tf.stop_gradient, o_t[agent])
         return o_tm1, o_t
 
+    @tf.function
     def _step(
         self,
     ) -> Dict[str, Dict[str, Any]]:
-        """Trainer forward and backward passes.
+        """Trainer step.
 
         Returns:
             losses
@@ -246,8 +248,10 @@ class MADQNTrainer(mava.Trainer):
         # Draw a batch of data from replay.
         sample: reverb.ReplaySample = next(self._iterator)
 
+        # Compute loss
         self._forward(sample)
 
+        # Compute and apply gradients
         self._backward()
 
         # Update the target networks
@@ -256,7 +260,6 @@ class MADQNTrainer(mava.Trainer):
         # Log losses per agent
         return train_utils.map_losses_per_agent_value(self.value_losses)
 
-    # Forward pass that calculates loss.
     def _forward(self, inputs: reverb.ReplaySample) -> None:
         """Trainer forward pass.
 
@@ -321,7 +324,6 @@ class MADQNTrainer(mava.Trainer):
 
         self.tape = tape
 
-    # Backward pass that calculates gradients and updates network.
     def _backward(self) -> None:
         """Trainer backward pass updating network parameters"""
 
@@ -527,6 +529,8 @@ class MADQNRecurrentTrainer(mava.Trainer):
     ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:
         """Apply the observation networks to the raw observations from the dataset
 
+        We assume that the observation network is non-recurrent.
+
         Args:
             observations: raw agent observations
 
@@ -535,7 +539,7 @@ class MADQNRecurrentTrainer(mava.Trainer):
             obs_target_trans: transformed target network observations
         """
 
-        # Note (dries): We are assuming that only the policy network
+        # NOTE We are assuming that only the value network
         # is recurrent and not the observation network.
         obs_trans = {}
         obs_target_trans = {}
@@ -555,10 +559,8 @@ class MADQNRecurrentTrainer(mava.Trainer):
                 dims,
             )
 
-            # This stop_gradient prevents gradients to propagate into the target
-            # observation network. In addition, since the online policy network is
-            # evaluated at o_t, this also means the policy loss does not influence
-            # the observation network training.
+            # This stop_gradient prevents gradients to propagate into
+            # the target observation network.
             obs_target_trans[agent] = tree.map_structure(
                 tf.stop_gradient, obs_target_trans[agent]
             )
@@ -597,14 +599,11 @@ class MADQNRecurrentTrainer(mava.Trainer):
         """Depricated"""
         pass
 
-    # NOTE (Claude) The recurrent trainer does not start with tf.function
-    # It does start on SMAC 3m and debug env but not on any other SMAC maps.
-    # TODO (Claude) get tf.function to work.
     @tf.function
     def _step(
         self,
     ) -> Dict[str, Dict[str, Any]]:
-        """Trainer forward and backward passes.
+        """Trainer step.
 
         Returns:
             losses
@@ -613,8 +612,10 @@ class MADQNRecurrentTrainer(mava.Trainer):
         # Draw a batch of data from replay.
         sample: reverb.ReplaySample = next(self._iterator)
 
+        # Compute loss
         self._forward(sample)
 
+        # Compute and apply gradients
         self._backward()
 
         # Update the target networks
@@ -623,7 +624,6 @@ class MADQNRecurrentTrainer(mava.Trainer):
         # Log losses per agent
         return train_utils.map_losses_per_agent_value(self.value_losses)
 
-    # Forward pass that calculates loss.
     def _forward(self, inputs: reverb.ReplaySample) -> None:
         """Trainer forward pass.
 
@@ -724,7 +724,6 @@ class MADQNRecurrentTrainer(mava.Trainer):
 
         self.tape = tape
 
-    # Backward pass that calculates gradients and updates network.
     def _backward(self) -> None:
         """Trainer backward pass updating network parameters"""
 
@@ -741,10 +740,6 @@ class MADQNRecurrentTrainer(mava.Trainer):
             )
 
             # Compute gradients.
-            # Note: Warning "WARNING:tensorflow:Calling GradientTape.gradient
-            #  on a persistent tape inside its context is significantly less efficient
-            #  than calling it outside the context." caused by losses.dpg, which calls
-            #  tape.gradient.
             gradients = tape.gradient(value_losses[agent], variables)
 
             # Maybe clip gradients.

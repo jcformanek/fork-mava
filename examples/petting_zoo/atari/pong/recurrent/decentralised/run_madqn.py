@@ -12,15 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""Example running MADQN on Atari Pong."""
+"""Example running recurrent MADQN on Atari Pong."""
 
 import functools
 from datetime import datetime
 from typing import Any
 
 import launchpad as lp
-import sonnet as snt
 from absl import app, flags
 
 from mava.components.tf.modules.exploration import LinearExplorationScheduler
@@ -50,8 +48,9 @@ flags.DEFINE_string("base_dir", "~/mava", "Base dir to store experiments.")
 
 
 def main(_: Any) -> None:
+    """Run example."""
 
-    # environment
+    # Environment
     environment_factory = functools.partial(
         pettingzoo_utils.make_environment,
         env_class=FLAGS.env_class,
@@ -79,7 +78,7 @@ def main(_: Any) -> None:
         time_delta=log_every,
     )
 
-    # distributed program
+    # Distributed program
     program = madqn.MADQN(
         environment_factory=environment_factory,
         network_factory=network_factory,
@@ -90,10 +89,9 @@ def main(_: Any) -> None:
         ),
         shared_weights=False,
         batch_size=32,
-        max_replay_size=10000,
-        samples_per_insert=16,
+        max_replay_size=5000,
+        samples_per_insert=4,
         min_replay_size=32,
-        optimizer=snt.optimizers.Adam(learning_rate=1e-4),
         executor_fn=madqn.MADQNRecurrentExecutor,
         trainer_fn=madqn.MADQNRecurrentTrainer,
         evaluator_interval={"executor_episodes": 2},

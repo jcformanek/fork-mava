@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """Wraps a Flatland MARL environment to be used as a dm_env environment."""
-
 import types as tp
 from functools import partial
 from typing import Any, Callable, Dict, List, Tuple, Union
@@ -266,7 +265,9 @@ class FlatlandEnvWrapper(ParallelEnvWrapper):
     # Convert Flatland observation so it's dm_env compatible. Also, the list
     # of legal actions must be converted to a legal actions mask.
     def _convert_observations(
-        self, observes: Dict[str, Tuple[np.ndarray, np.ndarray]], dones: Dict[str, bool]
+        self,
+        observes: Dict[str, Tuple[np.ndarray, np.ndarray]],
+        dones: Dict[str, bool],
     ) -> Observation:
         """Convert observation"""
         return convert_dm_compatible_observations(
@@ -277,7 +278,8 @@ class FlatlandEnvWrapper(ParallelEnvWrapper):
             self.possible_agents,
         )
 
-    # collate agent info and observation into a tuple, making the agents obervation to
+    # collate agent info and observation into a tuple,
+    # making the agents obervation to
     # be a tuple of the observation from the env and the agent info
     def _collate_obs_and_info(
         self, observes: Dict[int, np.ndarray], info: Dict[str, Dict[int, Any]]
@@ -288,7 +290,8 @@ class FlatlandEnvWrapper(ParallelEnvWrapper):
         for agent, obs in observes.items():
             agent_id = get_agent_id(agent)
             agent_info = np.array(
-                [info[k][agent] for k in sort_str_num(info.keys())], dtype=np.float32
+                [info[k][agent] for k in sort_str_num(info.keys())],
+                dtype=np.float32,
             )
             new_obs = (obs, agent_info) if self._include_agent_info else obs
             observations[agent_id] = new_obs
@@ -371,7 +374,9 @@ class FlatlandEnvWrapper(ParallelEnvWrapper):
             )
         return observation_specs
 
-    def action_spec(self) -> Dict[str, Union[specs.DiscreteArray, specs.BoundedArray]]:
+    def action_spec(
+        self,
+    ) -> Dict[str, Union[specs.DiscreteArray, specs.BoundedArray]]:
         """Get action spec."""
         action_specs = {}
         action_spaces = self.action_spaces
@@ -451,7 +456,7 @@ def agent_info_spec() -> specs.BoundedArray:
 
 
 def get_agent_id(handle: int) -> str:
-    """Obtain the string that constitutes the agent id from an agent handle - an int"""
+    """Obtain the string that constitutes the agent id from an agent handle"""
     return f"train_{handle}"
 
 
@@ -463,10 +468,10 @@ def get_agent_handle(id: str) -> int:
 def decorate_step_method(env: RailEnv) -> None:
     """Step method decorator.
 
-    Enable the step method of the env to take action dictionaries where agent keys
-    are the agent ids. Flatland uses the agent handles as keys instead. This function
-    decorates the step method so that it accepts an action dict where the keys are the
-    agent ids.
+    Enable the step method of the env to take action dictionaries where
+    agent keys are the agent ids. Flatland uses the agent handles as
+    keys instead. This function decorates the step method so that it
+    accepts an action dict where the keys are the agent ids.
     """
     env.step_ = env.step
 
@@ -626,7 +631,8 @@ def normalize_observation(
     """This function normalizes the observation used by the RL algorithm."""
     if observation is None:
         return np.zeros(
-            11 * sum(np.power(4, i) for i in range(tree_depth + 1)), dtype=np.float32
+            11 * sum(np.power(4, i) for i in range(tree_depth + 1)),
+            dtype=np.float32,
         )
     data, distance, agent_data = split_tree_into_feature_groups(observation, tree_depth)
 
@@ -634,6 +640,7 @@ def normalize_observation(
     distance = norm_obs_clip(distance, normalize_to_range=True)
     agent_data = np.clip(agent_data, -1, 1)
     normalized_obs = np.array(
-        np.concatenate((np.concatenate((data, distance)), agent_data)), dtype=np.float32
+        np.concatenate((np.concatenate((data, distance)), agent_data)),
+        dtype=np.float32,
     )
     return normalized_obs

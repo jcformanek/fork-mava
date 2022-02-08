@@ -48,7 +48,7 @@ DiscreteArray = dm_specs.DiscreteArray
 
 @dataclasses.dataclass
 class MADQNConfig:
-    """Configuration options for the MADDPG system.
+    """Configuration options for the MADQN system.
 
     Args:
         environment_spec: description of the action and observation spaces etc. for
@@ -145,7 +145,7 @@ class MADQNBuilder:
         executor_fn: Type[core.Executor] = MADQNFeedForwardExecutor,
         extra_specs: Dict[str, Any] = {},
     ):
-        """Initialise the system.
+        """Initialise the builder.
 
         Args:
             config: system configuration specifying hyperparameters and
@@ -169,11 +169,11 @@ class MADQNBuilder:
         """Convert specs.
 
         Args:
-            spec: [description]
-            num_networks: [description]
+            spec: agent specs
+            num_networks: the number of networks
 
         Returns:
-            Dict[str, Any]: converted specs
+            converted specs
         """
         if type(spec) is not dict:
             return spec
@@ -426,6 +426,7 @@ class MADQNBuilder:
         adder: Optional[adders.ReverbParallelAdder] = None,
         variable_source: Optional[MavaVariableSource] = None,
         evaluator: bool = False,
+        seed: Optional[int] = None,
     ) -> core.Executor:
         """Create an executor instance.
 
@@ -439,6 +440,7 @@ class MADQNBuilder:
                 Defaults to None.
             evaluator: boolean indicator if the executor is used for
                 for evaluation only.
+            seed: seed for reproducible sampling.
 
         Returns:
             system executor, a collection of agents making up the part
@@ -486,7 +488,10 @@ class MADQNBuilder:
 
         # Pass scheduler and initialize action selectors
         action_selectors_with_scheduler = initialize_epsilon_schedulers(
-            exploration_schedules, networks["selectors"], self._config.agent_net_keys
+            exploration_schedules,
+            networks["selectors"],
+            self._config.agent_net_keys,
+            seed=seed,
         )
 
         # Create the actor which defines how we take actions.

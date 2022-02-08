@@ -41,6 +41,7 @@ class SMACWrapper(ParallelEnvWrapper):
             env_preprocess_wrappers (Optional[List], optional): Wrappers
                 that preprocess envs.
                 Format (env_preprocessor, dict_with_preprocessor_params).
+            return_state_info: return extra state info
         """
         self._environment = environment
         self._return_state_info = return_state_info
@@ -162,7 +163,7 @@ class SMACWrapper(ParallelEnvWrapper):
         """Convert rewards to be dm_env compatible.
 
         Args:
-            rewards: rewards per agent.
+            reward: rewards per agent.
         """
         rewards_spec = self.reward_spec()
         rewards = {}
@@ -171,6 +172,7 @@ class SMACWrapper(ParallelEnvWrapper):
         return rewards
 
     def _get_legal_actions(self) -> List:
+        """Get legal actions from the environment."""
         legal_actions = []
         for i, _ in enumerate(self._agents):
             legal_actions.append(
@@ -181,7 +183,7 @@ class SMACWrapper(ParallelEnvWrapper):
     def _convert_observations(
         self, observations: List, legal_actions: List, done: bool
     ) -> types.Observation:
-        """Convert PettingZoo observation so it's dm_env compatible.
+        """Convert SMAC observation so it's dm_env compatible.
 
         Args:
             observes (Dict[str, np.ndarray]): observations per agent.
@@ -234,11 +236,13 @@ class SMACWrapper(ParallelEnvWrapper):
 
         return observation_specs
 
-    def action_spec(self) -> Dict[str, Union[specs.DiscreteArray, specs.BoundedArray]]:
+    def action_spec(
+        self,
+    ) -> Dict[str, Union[specs.DiscreteArray, specs.BoundedArray]]:
         """Action spec.
 
         Returns:
-            Dict[str, Union[specs.DiscreteArray, specs.BoundedArray]]: spec for actions.
+            spec for actions.
         """
         action_specs = {}
         for agent in self._agents:
@@ -319,8 +323,3 @@ class SMACWrapper(ParallelEnvWrapper):
             return self.__getattribute__(name)
         else:
             return getattr(self._environment, name)
-
-
-env = StarCraft2Env(map_name="3m")
-
-wrapped_env = SMACWrapper(env)
