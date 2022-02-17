@@ -26,7 +26,7 @@ from absl import app, flags
 from mava.components.tf.modules.exploration.exploration_scheduling import (
     LinearExplorationScheduler,
 )
-from mava.systems.tf import madqn
+from mava.systems.tf import dist_madqn
 from mava.utils import lp_utils
 from mava.utils.enums import ArchitectureType
 from mava.utils.environments.smac_utils import make_environment
@@ -35,7 +35,7 @@ from mava.utils.loggers import logger_utils
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "map_name",
-    "3m",
+    "1c3s5z",
     "Starcraft 2 micromanagement map name (str).",
 )
 
@@ -55,7 +55,7 @@ def main(_: Any) -> None:
 
     # Networks.
     network_factory = lp_utils.partial_kwargs(
-        madqn.make_default_networks, architecture_type=ArchitectureType.recurrent
+        dist_madqn.make_default_networks,
     )
 
     # Checkpointer appends "Checkpoints" to checkpoint_dir
@@ -73,13 +73,16 @@ def main(_: Any) -> None:
     )
 
     # Distributed program
-    program = madqn.MADQN(
+    program = dist_madqn.DistMADQN( 
         environment_factory=environment_factory,
         network_factory=network_factory,
         logger_factory=logger_factory,
+        vmin=0,
+        vmax=30,
+        num_atoms=51,
         num_executors=1,
         exploration_scheduler_fn=LinearExplorationScheduler(
-            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=5e-6
+            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=3e-6
         ),
         optimizer=snt.optimizers.RMSProp(
             learning_rate=0.0005, epsilon=0.00001, decay=0.99
@@ -95,8 +98,8 @@ def main(_: Any) -> None:
         sequence_length=30,
         period=15,
         evaluator_interval={"executor_episodes": 2},
-        trainer_fn=madqn.MADQNRecurrentTrainer,
-        executor_fn=madqn.MADQNRecurrentExecutor,
+        trainer_fn=dist_madqn.QRDQNTrainer,
+        executor_fn=dist_madqn.QRDQNExecutor,
     ).build()
 
     # Only the trainer should use the GPU (if available)

@@ -23,7 +23,7 @@ try:
 except ModuleNotFoundError:
     _found_smac = False
 
-from mava.wrappers import SMACWrapper
+from mava.wrappers.smac import SMACWrapper
 from mava.wrappers.env_preprocess_wrappers import (
     ConcatAgentIdToObservation,
     ConcatPrevActionToObservation,

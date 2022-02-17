@@ -23,10 +23,8 @@ import launchpad as lp
 import sonnet as snt
 from absl import app, flags
 
-from mava.components.tf.modules.exploration.exploration_scheduling import (
-    LinearExplorationScheduler,
-)
-from mava.systems.tf import madqn
+from mava.offline.mabc import MABC, MABCExecutor, MABCTrainer
+from mava.offline.mabc.networks import make_default_networks 
 from mava.utils import lp_utils
 from mava.utils.enums import ArchitectureType
 from mava.utils.environments.smac_utils import make_environment
@@ -35,7 +33,7 @@ from mava.utils.loggers import logger_utils
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "map_name",
-    "3m",
+    "8m",
     "Starcraft 2 micromanagement map name (str).",
 )
 
@@ -55,7 +53,7 @@ def main(_: Any) -> None:
 
     # Networks.
     network_factory = lp_utils.partial_kwargs(
-        madqn.make_default_networks, architecture_type=ArchitectureType.recurrent
+        make_default_networks, architecture_type=ArchitectureType.recurrent
     )
 
     # Checkpointer appends "Checkpoints" to checkpoint_dir
@@ -73,30 +71,21 @@ def main(_: Any) -> None:
     )
 
     # Distributed program
-    program = madqn.MADQN(
+    program = MABC(
         environment_factory=environment_factory,
         network_factory=network_factory,
         logger_factory=logger_factory,
-        num_executors=1,
-        exploration_scheduler_fn=LinearExplorationScheduler(
-            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=5e-6
-        ),
+        logdir="./madqn_8m_dataset",
         optimizer=snt.optimizers.RMSProp(
             learning_rate=0.0005, epsilon=0.00001, decay=0.99
         ),
         checkpoint_subpath=checkpoint_dir,
         batch_size=32,
-        executor_variable_update_period=200,
-        target_update_period=200,
         max_gradient_norm=20.0,
-        min_replay_size=32,
-        max_replay_size=5000,
-        samples_per_insert=4,
-        sequence_length=30,
-        period=15,
-        evaluator_interval={"executor_episodes": 2},
-        trainer_fn=madqn.MADQNRecurrentTrainer,
-        executor_fn=madqn.MADQNRecurrentExecutor,
+        evaluator_interval={"trainer_steps": 1},
+        shuffle_buffer_size=200,
+        trainer_fn=MABCTrainer,
+        executor_fn=MABCExecutor,
     ).build()
 
     # Only the trainer should use the GPU (if available)
