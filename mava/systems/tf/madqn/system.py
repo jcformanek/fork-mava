@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from mava.offline.offline_utils import MAEnvironmentLogger
+from mava.project.offline_utils import MAEnvironmentLogger
 
 """MADQN system implementation."""
 import functools

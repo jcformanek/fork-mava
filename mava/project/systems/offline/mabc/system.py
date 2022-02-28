@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""MADQN system implementation."""
+"""MA Batch Constrained Q-learning system implementation."""
 
 import functools
 from typing import Any, Callable, Dict, List, Mapping, Optional, Type, Union
@@ -31,7 +31,7 @@ from dm_env import specs
 
 import mava
 from mava import core
-from mava.offline.offline_utils import MAEnvironmentLoggerDataset
+from mava.project.offline_utils import MAEnvironmentLoggerDataset
 from mava import specs as mava_specs
 from mava.systems.tf import variable_utils
 from mava.utils.builder_utils import initialize_epsilon_schedulers
@@ -53,10 +53,11 @@ from mava.utils import enums
 from mava.utils.loggers import MavaLogger, logger_utils
 from mava.utils.sort_utils import sort_str_num
 from mava.wrappers import DetailedPerAgentStatistics, ScaledDetailedTrainerStatistics
-from mava.offline.offline_madqn import OfflineRecurrentMADQNTrainer, OfflineRecurrentMADQNExecutor
+from mava.offline.mabc import MABCTrainer, MABCExecutor
+from mava.offline.components.architectures import DecentralisedConstrainedValueActor
 
-class OfflineRecurrentMADQN:
-    """Offline Recurrent MADQN system."""
+class MABC:
+    """MA Batch Constrained Q-learning system."""
 
     def __init__(  # noqa
         self,
@@ -64,15 +65,11 @@ class OfflineRecurrentMADQN:
         network_factory: Callable[[acme_specs.BoundedArray], Dict[str, snt.Module]],
         logdir: str,
         logger_factory: Callable[[str], MavaLogger] = None,
-        trainer_fn = OfflineRecurrentMADQNTrainer,
-        executor_fn = OfflineRecurrentMADQNExecutor,
+        trainer_fn = MABCTrainer,
+        executor_fn = MABCExecutor,
         shuffle_buffer_size: int = 500,
         shared_weights: bool = True,
-        discount: float = 0.99,
         batch_size: int = 32,
-        target_averaging: bool = False,
-        target_update_period: int = 200,
-        target_update_rate: Optional[float] = None,
         optimizer: Union[snt.Optimizer, Dict[str, snt.Optimizer]] = snt.optimizers.Adam(
             learning_rate=1e-4
         ),
@@ -108,7 +105,7 @@ class OfflineRecurrentMADQN:
             for agent in agents
         }
 
-        self._architecture = DecentralisedValueActor
+        self._architecture = DecentralisedConstrainedValueActor
         self._environment_factory = environment_factory
         self._network_factory = network_factory
         self._logger_factory = logger_factory
@@ -127,11 +124,7 @@ class OfflineRecurrentMADQN:
         self._eval_loop_fn_kwargs = eval_loop_fn_kwargs
         self._evaluator_interval = evaluator_interval
         self._shared_weightsl = shared_weights
-        self._discount = discount
         self._batch_size = batch_size
-        self._target_averaging = target_averaging
-        self._target_update_period = target_update_period
-        self._target_update_rate = target_update_rate
         self._optimizer = optimizer
         self._max_gradient_norm = max_gradient_norm
         self._termination_condition = termination_condition
@@ -171,6 +164,7 @@ class OfflineRecurrentMADQN:
             "environment_spec": self._environment_spec,
             "observation_networks": networks["observations"],
             "value_networks": networks["values"],
+            "behaviour_networks": networks["behaviours"],
             "action_selectors": networks["action_selectors"],
             "agent_net_keys": self._agent_net_keys,
         }
@@ -235,7 +229,7 @@ class OfflineRecurrentMADQN:
 
         # Add the network variables
         get_keys = []
-        for net_type_key in ["observations", "values"]:
+        for net_type_key in ["observations", "behaviours"]:
             for net_key in networks[net_type_key].keys():
                 var_key = f"{net_key}_{net_type_key}"
                 variables[var_key] = networks[net_type_key][net_key].variables
@@ -278,8 +272,7 @@ class OfflineRecurrentMADQN:
         # Create the actor which defines how we take actions.
         executor = self._executor_fn(
             observation_networks=networks["observations"],
-            value_networks=networks["values"],
-            action_selectors=action_selectors_with_scheduler,
+            behaviour_networks=networks["behaviours"],
             counts=counts,
             agent_specs=self._environment_spec.get_agent_specs(),
             agent_net_keys=self._agent_net_keys,
@@ -352,7 +345,7 @@ class OfflineRecurrentMADQN:
 
         set_keys = []
         get_keys = []
-        for net_type_key in ["observations", "values"]:
+        for net_type_key in ["observations", "behaviours"]:
             for net_key in networks[net_type_key].keys():
                 variables[f"{net_key}_{net_type_key}"] = networks[net_type_key][
                     net_key
@@ -385,17 +378,11 @@ class OfflineRecurrentMADQN:
 
         trainer_config: Dict[str, Any] = {
             "agents": self._agents,
-            "value_networks": networks["values"],
+            "behaviour_networks": networks["behaviours"],
             "observation_networks": networks["observations"],
-            "target_value_networks": networks["target_values"],
-            "target_observation_networks": networks["target_observations"],
             "agent_net_keys": self._agent_net_keys,
             "optimizer": self._optimizer,
             "max_gradient_norm": self._max_gradient_norm,
-            "discount": self._discount,
-            "target_averaging": self._target_averaging,
-            "target_update_period": self._target_update_period,
-            "target_update_rate": self._target_update_rate,
             "variable_client": variable_client,
             "dataset": dataset,
             "counts": counts,

@@ -31,7 +31,7 @@ from mava.systems.tf.madqn.training import MADQNRecurrentTrainer
 from mava.systems.tf.variable_utils import VariableClient
 from mava.utils import training_utils as train_utils
 
-from mava.offline.test_again import BetterMixer, OurLayer
+from mava.offline.dist_convolutions import BetterMixer, OurLayer
 from trfl.dist_value_ops import _slice_with_actions, _l2_project
 
 from mava.systems.tf.dist_madqn.mixer import QRMIX

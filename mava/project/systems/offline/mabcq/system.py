@@ -31,7 +31,7 @@ from dm_env import specs
 
 import mava
 from mava import core
-from mava.offline.offline_utils import MAEnvironmentLoggerDataset
+from mava.project.offline_utils import MAEnvironmentLoggerDataset
 from mava import specs as mava_specs
 from mava.systems.tf import variable_utils
 from mava.utils.builder_utils import initialize_epsilon_schedulers

@@ -1,7 +1,7 @@
 import dm_env
 import numpy as np
 
-from mava.offline.offline_utils import MAEnvironmentLogger, MAEnvironmentLoggerDataset
+from mava.project.offline_utils import MAEnvironmentLogger, MAEnvironmentLoggerDataset
 from mava.utils.environments.smac_utils import make_environment
 
 env = make_environment()
