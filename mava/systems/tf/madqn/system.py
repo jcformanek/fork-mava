@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from mava.offline.offline_utils import MAEnvironmentLogger
+
 """MADQN system implementation."""
 import functools
 from typing import Any, Callable, Dict, List, Mapping, Optional, Type, Union
@@ -510,6 +512,10 @@ class MADQN:
         # TODO (Arnu): figure out why factory function are giving type errors
         # Create the environment.
         environment = self._environment_factory(evaluation=False)  # type: ignore
+
+        # # NOTE Add Env logger
+        # ENV LOGGING
+        # environment = MAEnvironmentLogger(environment, max_trajectory_length=120, trajectories_per_file=1000)
 
         # Create executor logger
         executor_logger_config = {}
