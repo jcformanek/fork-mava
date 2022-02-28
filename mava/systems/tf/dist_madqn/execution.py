@@ -140,7 +140,7 @@ class DistMADQNExecutor(MADQNRecurrentExecutor):
 
         # Compute the policy, conditioned on the observation.
         logits, new_state = self._value_networks[agent_key](embed, state)
-        logits = tf.reshape(logits, shape=(*logits.shape[:-1], -1, 51)) # TODO don't hardcode
+        logits = tf.reshape(logits, shape=(*logits.shape[:-1], -1, len(self._atoms))) # TODO don't hardcode
         action_values_probs = tf.nn.softmax(logits)
         action_values_mean = tf.reduce_sum(action_values_probs * self._atoms, -1)
 

@@ -29,34 +29,16 @@ from mava.components.tf.modules.exploration.exploration_scheduling import (
 from mava.systems.tf import dist_madqn
 from mava.utils import lp_utils
 from mava.utils.enums import ArchitectureType
-# from mava.utils.environments.smac_utils import make_environment
-from mava.utils.environments.debugging_utils import make_environment
+from mava.utils.environments.smac_utils import make_environment
 from mava.utils.loggers import logger_utils
 
 FLAGS = flags.FLAGS
-# flags.DEFINE_string(
-#     "map_name",
-#     "3m",
-#     "Starcraft 2 micromanagement map name (str).",
-# )
-
-# flags.DEFINE_string(
-#     "mava_id",
-#     str(datetime.now()),
-#     "Experiment identifier that can be used to continue experiments.",
-# )
-# flags.DEFINE_string("base_dir", "~/mava", "Base dir to store experiments.")
-
 flags.DEFINE_string(
-    "env_name",
-    "simple_spread",
-    "Debugging environment name (str).",
+    "map_name",
+    "5m_vs_6m",
+    "Starcraft 2 micromanagement map name (str).",
 )
-flags.DEFINE_string(
-    "action_space",
-    "discrete",
-    "Environment action space type (str).",
-)
+
 flags.DEFINE_string(
     "mava_id",
     str(datetime.now()),
@@ -69,17 +51,7 @@ def main(_: Any) -> None:
     """Example running recurrent MADQN on SMAC environment."""
 
     # Environment
-    # environment_factory = functools.partial(
-    #     make_environment, 
-    #     map_name=FLAGS.map_name)
-
-    # Environment.
-    environment_factory = functools.partial(
-        make_environment,
-        env_name=FLAGS.env_name,
-        action_space=FLAGS.action_space,
-        num_agents=2
-    )
+    environment_factory = functools.partial(make_environment, map_name=FLAGS.map_name)
 
     # Networks.
     network_factory = lp_utils.partial_kwargs(
@@ -107,26 +79,27 @@ def main(_: Any) -> None:
         logger_factory=logger_factory,
         vmin=0,
         vmax=30,
+        num_atoms=51,
         num_executors=1,
         exploration_scheduler_fn=LinearExplorationScheduler(
-            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=5e-6
+            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=2e-6
         ),
         optimizer=snt.optimizers.RMSProp(
             learning_rate=0.0005, epsilon=0.00001, decay=0.99
         ),
         checkpoint_subpath=checkpoint_dir,
-        batch_size=16,
+        batch_size=32,
         executor_variable_update_period=200,
         target_update_period=200,
         max_gradient_norm=20.0,
         min_replay_size=32,
         max_replay_size=5000,
         samples_per_insert=4,
-        sequence_length=15,
+        sequence_length=30,
         period=15,
         evaluator_interval={"executor_episodes": 2},
-        trainer_fn=dist_madqn.DistMADQNTrainer,
-        executor_fn=dist_madqn.DistMADQNExecutor,
+        trainer_fn=dist_madqn.VDDNTrainer, 
+        executor_fn=dist_madqn.QRDQNExecutor,
     ).build()
 
     # Only the trainer should use the GPU (if available)

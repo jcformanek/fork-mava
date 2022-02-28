@@ -220,7 +220,9 @@ class DistMADQN(MADQN):
             learning_rate_scheduler_fn=learning_rate_scheduler_fn,
         )
 
-        # self._atoms = tf.convert_to_tensor(np.linspace(vmin, vmax, num_atoms), dtype='float32')
+        # num_agents = len(self._environment_spec.get_agent_ids())
+        # self._atoms = tf.convert_to_tensor(np.linspace(vmin * num_agents, vmax * num_agents, (num_atoms -1) * num_agents + 1), dtype='float32')
+        # self._agent_atoms = tf.convert_to_tensor(np.linspace(vmin, vmax, num_atoms ), dtype='float32')
         self._atoms = num_atoms
 
     def trainer(
@@ -264,6 +266,7 @@ class DistMADQN(MADQN):
         )
 
         # Setup the mixer
+        # trainer.setup_dist_atoms(self._atoms, self._agent_atoms)  # type: ignore
         trainer.setup_dist_atoms(self._atoms)  # type: ignore
 
         return trainer
@@ -302,7 +305,7 @@ class DistMADQN(MADQN):
         )
 
         # Setup atoms
-        executor._atoms = self._atoms
+        executor._atoms = self._atoms # TODO fix
 
         # TODO (Arnu): figure out why factory function are giving type errors
         # Create the environment.
@@ -364,6 +367,7 @@ class DistMADQN(MADQN):
         )
 
         # Setup atoms
+        # executor._atoms = self._agent_atoms
         executor._atoms = self._atoms
 
         # Make the environment.

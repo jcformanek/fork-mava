@@ -18,5 +18,5 @@ from mava.systems.tf.dist_madqn.networks import make_default_networks
 from mava.systems.tf.dist_madqn.system import DistMADQN
 from mava.systems.tf.dist_madqn.execution import DistMADQNExecutor, QRDQNExecutor
 from mava.systems.tf.dist_madqn.training import (
-    DistMADQNTrainer, QRDQNTrainer
+    DistMADQNTrainer, QRDQNTrainer, VDDNTrainer, CVDDTrainer, QRMixTrainer
 )

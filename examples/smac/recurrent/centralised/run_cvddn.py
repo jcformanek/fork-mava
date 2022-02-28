@@ -29,34 +29,16 @@ from mava.components.tf.modules.exploration.exploration_scheduling import (
 from mava.systems.tf import dist_madqn
 from mava.utils import lp_utils
 from mava.utils.enums import ArchitectureType
-# from mava.utils.environments.smac_utils import make_environment
-from mava.utils.environments.debugging_utils import make_environment
+from mava.utils.environments.smac_utils import make_environment
 from mava.utils.loggers import logger_utils
 
 FLAGS = flags.FLAGS
-# flags.DEFINE_string(
-#     "map_name",
-#     "3m",
-#     "Starcraft 2 micromanagement map name (str).",
-# )
-
-# flags.DEFINE_string(
-#     "mava_id",
-#     str(datetime.now()),
-#     "Experiment identifier that can be used to continue experiments.",
-# )
-# flags.DEFINE_string("base_dir", "~/mava", "Base dir to store experiments.")
-
 flags.DEFINE_string(
-    "env_name",
-    "simple_spread",
-    "Debugging environment name (str).",
+    "map_name",
+    "3m",
+    "Starcraft 2 micromanagement map name (str).",
 )
-flags.DEFINE_string(
-    "action_space",
-    "discrete",
-    "Environment action space type (str).",
-)
+
 flags.DEFINE_string(
     "mava_id",
     str(datetime.now()),
@@ -65,25 +47,17 @@ flags.DEFINE_string(
 flags.DEFINE_string("base_dir", "~/mava", "Base dir to store experiments.")
 
 
+
 def main(_: Any) -> None:
     """Example running recurrent MADQN on SMAC environment."""
 
     # Environment
-    # environment_factory = functools.partial(
-    #     make_environment, 
-    #     map_name=FLAGS.map_name)
-
-    # Environment.
-    environment_factory = functools.partial(
-        make_environment,
-        env_name=FLAGS.env_name,
-        action_space=FLAGS.action_space,
-        num_agents=2
-    )
+    environment_factory = functools.partial(make_environment, map_name=FLAGS.map_name)
 
     # Networks.
     network_factory = lp_utils.partial_kwargs(
         dist_madqn.make_default_networks,
+        num_atoms=25
     )
 
     # Checkpointer appends "Checkpoints" to checkpoint_dir
@@ -106,10 +80,11 @@ def main(_: Any) -> None:
         network_factory=network_factory,
         logger_factory=logger_factory,
         vmin=0,
-        vmax=30,
+        vmax=20,
+        num_atoms=25,
         num_executors=1,
         exploration_scheduler_fn=LinearExplorationScheduler(
-            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=5e-6
+            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=2e-5
         ),
         optimizer=snt.optimizers.RMSProp(
             learning_rate=0.0005, epsilon=0.00001, decay=0.99
@@ -125,7 +100,7 @@ def main(_: Any) -> None:
         sequence_length=15,
         period=15,
         evaluator_interval={"executor_episodes": 2},
-        trainer_fn=dist_madqn.DistMADQNTrainer,
+        trainer_fn=dist_madqn.CVDDTrainer, 
         executor_fn=dist_madqn.DistMADQNExecutor,
     ).build()
 
