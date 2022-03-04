@@ -23,8 +23,10 @@ import launchpad as lp
 import sonnet as snt
 from absl import app, flags
 
-from mava.offline.mabc import MABC, MABCExecutor, MABCTrainer
-from mava.offline.mabc.networks import make_default_networks 
+from mava.components.tf.modules.exploration.exploration_scheduling import (
+    LinearExplorationScheduler,
+)
+from mava.project.systems.online.independent_dqn import IndependentDQN, IndependentDQNExecutor, IndependentDQNTrainer
 from mava.utils import lp_utils
 from mava.utils.enums import ArchitectureType
 from mava.utils.environments.smac_utils import make_environment
@@ -33,7 +35,7 @@ from mava.utils.loggers import logger_utils
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "map_name",
-    "8m",
+    "3m",
     "Starcraft 2 micromanagement map name (str).",
 )
 
@@ -51,11 +53,6 @@ def main(_: Any) -> None:
     # Environment
     environment_factory = functools.partial(make_environment, map_name=FLAGS.map_name)
 
-    # Networks.
-    network_factory = lp_utils.partial_kwargs(
-        make_default_networks, architecture_type=ArchitectureType.recurrent
-    )
-
     # Checkpointer appends "Checkpoints" to checkpoint_dir
     checkpoint_dir = f"{FLAGS.base_dir}/{FLAGS.mava_id}"
 
@@ -71,35 +68,41 @@ def main(_: Any) -> None:
     )
 
     # Distributed program
-    program = MABC(
+    program = IndependentDQN(
         environment_factory=environment_factory,
-        network_factory=network_factory,
         logger_factory=logger_factory,
-        logdir="./madqn_8m_dataset",
+        exploration_scheduler=LinearExplorationScheduler(
+            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=1e-5,
+        ),
         optimizer=snt.optimizers.RMSProp(
             learning_rate=0.0005, epsilon=0.00001, decay=0.99
         ),
         checkpoint_subpath=checkpoint_dir,
         batch_size=32,
+        min_replay_size=32,
+        target_update_period=200,
         max_gradient_norm=20.0,
-        evaluator_interval={"trainer_steps": 1},
-        shuffle_buffer_size=200,
-        trainer_fn=MABCTrainer,
-        executor_fn=MABCExecutor,
-    ).build()
-
-    # Only the trainer should use the GPU (if available)
-    local_resources = lp_utils.to_device(
-        program_nodes=program.groups.keys(), nodes_on_gpu=["trainer"]
+        samples_per_insert=None,
+        trainer_fn=IndependentDQNTrainer,
+        executor_fn=IndependentDQNExecutor,
     )
 
-    # Launch
-    lp.launch(
-        program,
-        lp.LaunchType.LOCAL_MULTI_PROCESSING,
-        terminal="current_terminal",
-        local_resources=local_resources,
-    )
+    program.run_single_proc_system()
+
+    # program = program.build()
+
+    # # Only the trainer should use the GPU (if available)
+    # local_resources = lp_utils.to_device(
+    #     program_nodes=program.groups.keys(), nodes_on_gpu=["trainer"]
+    # )
+
+    # # Launch
+    # lp.launch(
+    #     program,
+    #     lp.LaunchType.LOCAL_MULTI_PROCESSING,
+    #     terminal="current_terminal",
+    #     local_resources=local_resources,
+    # )
 
 
 if __name__ == "__main__":
