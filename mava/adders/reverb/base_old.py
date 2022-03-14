@@ -79,9 +79,11 @@ def spec_like_to_tensor_spec(
     paths: Iterable[str], spec: acme_specs.Array
 ) -> tf.TypeSpec:
     """Convert spec like object to tensorspec.
+
     Args:
         paths (Iterable[str]): Spec like path.
         spec (acme_specs.Array): Spec to use.
+
     Returns:
         tf.TypeSpec: Returned tensorspec.
     """
@@ -94,10 +96,12 @@ def get_trajectory_net_agents(
 ) -> Tuple[List, Dict[str, List]]:
     """Returns a dictionary that maps network_keys to a list of agents using that
     specific network.
+
     Args:
         trajectory: Episode experience recorded by
         the adders.
         trajectory_net_keys: The network_keys used by each agent in the trajectory.
+
     Returns:
         agents: A sorted list of all the agent_keys.
         agents_per_network: A dictionary that maps network_keys to
@@ -125,6 +129,7 @@ class ReverbParallelAdder(ReverbAdder, ParallelAdder):
         use_next_extras: bool = True,
     ):
         """Reverb Base Adder.
+
         Args:
             client (reverb.Client): Client to access reverb.
             max_sequence_length (int): The number of observations that can be added to
@@ -157,10 +162,12 @@ class ReverbParallelAdder(ReverbAdder, ParallelAdder):
         table_priorities: Dict[str, Any],
     ) -> None:
         """Write an episode experience (trajectory) to the reverb tables.
+
         Each table represents experience used by each of the trainers. Therefore
         this function dynamically determines to which table(s) to write
         parts of the trajectory based on what networks where used by
         the agents in the episode run.
+
         Args:
             trajectory: Trajectory to be
                 written to the reverb tables.
@@ -376,18 +383,12 @@ class ReverbParallelAdder(ReverbAdder, ParallelAdder):
 
         if self._use_next_extras:
             add_dict["extras"] = extras
+
         self._writer.append(
             add_dict,
             partial_step=True,
         )
         self._add_first_called = True
-
-    def reset_writer(self, timeout_ms: Optional[int] = None) -> None:
-        """Resets the adder's buffer."""
-        if self._writer:
-            # Flush all appended data and clear the buffers.
-            self._writer.end_episode(clear_buffers=True, timeout_ms=timeout_ms)
-        self._add_first_called = False
 
     def add(
         self,
@@ -421,6 +422,7 @@ class ReverbParallelAdder(ReverbAdder, ParallelAdder):
 
         if self._use_next_extras:
             next_step["extras"] = next_extras
+
         self._writer.append(
             next_step,
             partial_step=True,
@@ -434,4 +436,4 @@ class ReverbParallelAdder(ReverbAdder, ParallelAdder):
             dummy_step = tree.map_structure(np.zeros_like, current_step)
             self._writer.append(dummy_step)
             self._write_last()
-            self.reset_writer()
+            self.reset()

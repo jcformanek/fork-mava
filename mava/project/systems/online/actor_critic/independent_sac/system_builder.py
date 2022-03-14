@@ -17,7 +17,6 @@ from typing import Any, Callable, Dict, Optional, Type
 
 import acme
 import dm_env
-import launchpad as lp
 import numpy as np
 import reverb
 import tensorflow as tf
@@ -37,37 +36,35 @@ from mava.adders import reverb as reverb_adders
 from mava.components.tf.modules.exploration.exploration_scheduling import (
     LinearExplorationScheduler,
 )
-from mava.environment_loop import ParallelEnvironmentLoop
 from mava.types import EpsilonScheduler
 from mava.utils.loggers import MavaLogger
-from mava.wrappers import DetailedPerAgentStatistics, ScaledDetailedTrainerStatistics
+from mava.wrappers import DetailedPerAgentStatistics
 from mava.utils.builder_utils import initialize_epsilon_schedulers
 from mava.components.tf.networks.epsilon_greedy import EpsilonGreedy
-from mava.project.systems.online.independent_dqn import IndependentDQNTrainer, IndependentDQNExecutor
+from mava.project.systems.online.actor_critic.independent_sac import IndependentSACTrainer, IndependentSACExecutor
+from mava.project.components.environment_loops import EnvironmentLoop
 
 
-class IndependentDQN:
-    """Independent recurrent DQN system."""
+class IndependentSAC:
+    """Independent recurrent Off-policy gradients."""
 
     def __init__(  # noqa
         self,
         environment_factory: Callable[[bool], dm_env.Environment],
-        exploration_scheduler: EpsilonScheduler = LinearExplorationScheduler(
-            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=1e-5,
-        ),
         logger_factory: MavaLogger = None,
-        trainer_fn: Type[mava.Trainer] = IndependentDQNTrainer,
-        executor_fn: Type[core.Executor] = IndependentDQNExecutor,
         discount: float = 0.99,
         batch_size: int = 32,
         min_replay_size: int = 64,
         max_replay_size: int = 5000,
         target_averaging: bool = False,
-        target_update_period: int = 100,
+        target_update_period: int = 200,
         target_update_rate: Optional[float] = None,
         executor_variable_update_period: int = 1000,
         samples_per_insert: Optional[float] = 4.0,
-        optimizer: snt.Optimizer = snt.optimizers.Adam(
+        critic_optimizer: snt.Optimizer = snt.optimizers.Adam(
+            learning_rate=1e-4
+        ),
+        policy_optimizer: snt.Optimizer = snt.optimizers.Adam(
             learning_rate=1e-4
         ),
         sequence_length: int = 20,
@@ -76,8 +73,8 @@ class IndependentDQN:
         checkpoint: bool = True,
         checkpoint_subpath: str = "~/mava/",
         checkpoint_minute_interval: int = 5,
-        train_loop_fn: Callable = ParallelEnvironmentLoop,
-        eval_loop_fn: Callable = ParallelEnvironmentLoop,
+        train_loop_fn: Callable = EnvironmentLoop,
+        eval_loop_fn: Callable = EnvironmentLoop,
         termination_condition: Optional[Dict[str, int]] = None,
         evaluator_interval: Optional[dict] = None,
         seed: Optional[int] = None,
@@ -91,7 +88,6 @@ class IndependentDQN:
         Args:
             TODO
         """
-
         # Environment and agents
         self._environment_spec = mava_specs.MAEnvironmentSpec(
             environment_factory(evaluation=False)  # type: ignore
@@ -109,7 +105,6 @@ class IndependentDQN:
         self._target_averaging = target_averaging
         self._target_update_period = target_update_period
         self._target_update_rate = target_update_rate
-        self._exploration_scheduler = exploration_scheduler
         self._executor_variable_update_period = executor_variable_update_period
         self._min_replay_size = min_replay_size
         self._max_replay_size = max_replay_size
@@ -117,7 +112,6 @@ class IndependentDQN:
         self._sequence_length = sequence_length
         self._period = period
         self._max_gradient_norm = max_gradient_norm
-        self._optimizer = optimizer
 
         # Checkpointing
         self._checkpoint = checkpoint
@@ -125,9 +119,13 @@ class IndependentDQN:
         self._checkpoint_minute_interval = checkpoint_minute_interval
         # TODO
 
-        # Trainer and Executor fns
-        self._trainer_fn = trainer_fn
-        self._executor_fn = executor_fn
+        self._trainer_fn = IndependentSACTrainer
+        self._executor_fn = IndependentSACExecutor
+
+        # Policy optimizer
+        self._policy_optimizer = policy_optimizer
+        self._critic_optimizer = critic_optimizer
+
         self._train_loop_fn = train_loop_fn
         self._eval_loop_fn = eval_loop_fn
         self._evaluator_interval = evaluator_interval # TODO 
@@ -198,15 +196,14 @@ class IndependentDQN:
         logger = self._logger_factory("executor")
 
         # Create replay adder
-        adder = self._build_adder(replay_client=replay_client)
+        adder = self._build_adder(replay_client=replay_client) # hook
 
         # Create the executor.
         executor = self._build_executor(
             variable_source, 
             adder=adder, 
-            exploration_scheduler=self._exploration_scheduler,
             variable_update_period=self._executor_variable_update_period
-        )
+        ) # hook
 
         # Create the loop to connect environment and executor
         executor_environment_loop = self._train_loop_fn(
@@ -236,7 +233,7 @@ class IndependentDQN:
                 performance of a system.
         """
         # Executor with no exploration and no adder
-        executor = self._build_executor(variable_source, evaluator=True)
+        executor = self._build_executor(variable_source, evaluator=True) # hook
 
         # Make the environment
         environment = self._environment_factory()  # type: ignore
@@ -271,9 +268,6 @@ class IndependentDQN:
         # Create logger
         logger = self._logger_factory("trainer")
 
-        # Create the networks
-        q_network = self._initialise_q_network()
-
         # Build dataset
         dataset = datasets.make_reverb_dataset(
             table="priority_table",
@@ -284,54 +278,11 @@ class IndependentDQN:
         )
 
         # Make the trainer
-        trainer =  self._trainer_fn(
-            agents=self._agents,
-            q_network=q_network,
-            optimizer=self._optimizer,
-            discount=self._discount,
-            target_averaging=self._target_averaging,
-            target_update_period=self._target_update_period,
-            target_update_rate=self._target_update_rate,
-            dataset=dataset,
-            max_gradient_norm=self._max_gradient_norm,
-            logger=logger,
-        )
+        trainer = self._build_trainer(dataset, logger) # hook
 
         return trainer
 
-    def build(self, name: str = "madqn") -> Any:
-        """Build the distributed system as a graph program.
-
-        Args:
-            name: system name.
-
-        Returns:
-            graph program for distributed system training.
-        """
-        program = lp.Program(name=name)
-
-        with program.group("replay"):
-            replay = program.add_node(lp.ReverbNode(self.replay))
-
-        with program.group("trainer"):
-            # Add trainer
-            trainer = program.add_node(
-                lp.CourierNode(self.trainer, replay_client=replay)
-            )
-
-        with program.group("evaluator"):
-            # Add evaluator
-            program.add_node(lp.CourierNode(self.evaluator, variable_source=trainer))
-
-        with program.group("executor"):
-            # Add executor
-            program.add_node(
-                lp.CourierNode(self.executor, replay_client=replay, variable_source=trainer)
-            )
-
-        return program
-
-    def run_single_proc_system(self, training_steps_per_episode = 4, evaluator_period=10):
+    def run_single_proc_system(self, training_steps_per_episode = 1, evaluator_period=5):
         
         replay_tables = self.replay()
         replay_server = reverb.Server(tables=replay_tables)
@@ -348,56 +299,21 @@ class IndependentDQN:
 
             episode += 1
 
-            executor.run_episode()
+            episode_stats = executor.run_episode()
+            executor._logger.write(episode_stats)
 
             if episode >= self._min_replay_size:
                 for _ in range(training_steps_per_episode):
                     trainer.step()
 
             if episode % evaluator_period == 0:
-                evaluator.run_episode()
+                episode_stats = evaluator.run_episode()
+                evaluator._logger.write(episode_stats)
 
-    # PRIVATE METHODS AND HOOKS
+    def build(self, name: str = "sac") -> Any:
+        raise NotImplemented("Distributed program not implemented yet.")
     
-    def _get_extras_spec(self) -> Any:
-        """Helper to establish specs for extras.
-
-        Returns:
-            Dictionary containing extras spec
-        """
-        q_network = self._initialise_q_network()
-
-        core_state_specs = {}
-        for agent in self._agents:
-            core_state_specs[agent] = (
-                tf2_utils.squeeze_batch_dim(
-                    q_network.initial_state(1)
-                ),
-            )
-        return {"core_states": core_state_specs, "zero_padding_mask": np.array(1)}
-
-
-    def _initialise_q_network(self):
-
-        spec = list(self._environment_spec.get_agent_specs().values())[0]
-        num_actions = spec.actions.num_values
-        dummy_observation = tf.expand_dims(tf.zeros_like(spec.observations.observation), axis=0)
-
-        q_network = snt.DeepRNN(
-            [
-                snt.Linear(64),
-                snt.GRU(64),
-                snt.Linear(num_actions)
-            ]
-        )
-        # Dummy recurent core state
-        dummy_core_state = q_network.initial_state(1)
-
-        # Initialize variables
-        q_network(dummy_observation, dummy_core_state)
-
-        return q_network
-
+    # PRIVATE METHODS AND HOOKS
 
     def _build_adder(self, replay_client):
 
@@ -410,47 +326,67 @@ class IndependentDQN:
 
         return adder
 
-    def _build_executor(self, variable_source, evaluator=False, adder=None, exploration_scheduler=None, variable_update_period=1):
+    def _initialise_critic_network(self):
 
-        # Exploration scheduler
-        if exploration_scheduler is None:
-            # Constant zero exploration
-            exploration_schedules = {agent: ConstantScheduler(epsilon=0.0) for agent in self._agents}
-        else:
-            exploration_schedules = {agent: exploration_scheduler for agent in self._agents}
+        spec = list(self._environment_spec.get_agent_specs().values())[0]
+        num_actions = spec.actions.num_values
+        dummy_observation = tf.zeros_like(spec.observations.observation)
 
-        # Epsilon-greedy action selector
-        action_selector = {"shared_network": EpsilonGreedy}
+        state_spec = self._environment_spec.get_extra_specs()["s_t"]
+        dummy_state = tf.zeros_like(state_spec)
 
-        # Action selectors with epsilon schedulers (one per agent)
-        action_selectors_with_epsilon_schedulers = initialize_epsilon_schedulers(
-            exploration_schedules,
-            action_selector,
-            agent_net_keys=self._agent_net_keys,
-            seed=self._seed,
+        # Concat state to observation
+        dummy_input = tf.concat([dummy_state, dummy_observation], axis=-1)
+
+        # Add batch dim
+        dummy_input = tf.expand_dims(dummy_input, axis=0)
+
+        critic_network = snt.Sequential(
+            [
+                snt.Linear(256),
+                tf.keras.layers.ReLU(),
+                snt.Linear(256),
+                tf.keras.layers.ReLU(),
+                snt.Linear(num_actions)
+            ]
         )
 
-        # Initialise Q-network
-        q_network = self._initialise_q_network()
+        # Create variables
+        critic_network(dummy_input)
 
-        # Variable client
-        variable_client = self._build_variable_client(variable_source, q_network, update_period=variable_update_period)
+        return critic_network
 
-        # Executor
-        executor =  self._executor_fn(
-            agents=self._agents,
-            q_network=q_network,
-            action_selectors=action_selectors_with_epsilon_schedulers,
-            variable_client=variable_client,
-            adder=adder,
-            evaluator=evaluator
+    def _initialise_policy_network(self):
+        spec = list(self._environment_spec.get_agent_specs().values())[0]
+        num_actions = spec.actions.num_values
+        dummy_observation = tf.expand_dims(tf.zeros_like(spec.observations.observation), axis=0)
+
+        policy_network = snt.DeepRNN(
+            [
+                snt.Linear(64),
+                snt.GRU(64),
+                snt.Linear(num_actions)
+            ]
         )
+        # Dummy recurent core state
+        dummy_core_state = policy_network.initial_state(1)
 
-        return executor
+        # Initialize variables
+        policy_network(dummy_observation, dummy_core_state)
 
-    def _build_variable_client(self, variable_source, q_network, update_period=1):
+        return policy_network
+    
+    def _get_extras_spec(self) -> Any:
+        """Helper to establish specs for extras.
+
+        Returns:
+            Dictionary containing extras spec
+        """
+        return {"zero_padding_mask": np.array(1)}
+
+    def _build_variable_client(self, variable_source, network, update_period=1):
         # Get variables
-        variables = {"q_network": q_network.variables}
+        variables = {"policy_network": network.variables}
 
         # Make variable client
         variable_client = variable_utils.VariableClient(
@@ -464,3 +400,54 @@ class IndependentDQN:
         variable_client.update_and_wait()
 
         return variable_client
+
+
+    def _build_executor(self, variable_source, exploration_scheduler=None, evaluator=False, adder=None, variable_update_period=1):
+
+        # Initialise Q-network
+        policy_network = self._initialise_policy_network()
+
+        # Variable client
+        variable_client = self._build_variable_client(variable_source, policy_network, update_period=variable_update_period)
+
+        # Executor
+        executor =  self._executor_fn(
+            agents=self._agents,
+            policy_network=policy_network,
+            variable_client=variable_client,
+            adder=adder,
+            evaluator=evaluator
+        )
+
+        return executor
+
+    def _build_trainer(self, dataset, logger):
+        # Create the networks
+        critic_network = self._initialise_critic_network() # hook
+        policy_network = self._initialise_policy_network() # hook
+
+        num_actions = self._environment_spec.get_agent_specs()["agent_0"].actions.num_values
+
+        trainer =  self._trainer_fn(
+            agents=self._agents,
+            num_actions=num_actions,
+            policy_network=policy_network,
+            critic_network=critic_network,
+            critic_optimizer=self._critic_optimizer,
+            policy_optimizer=self._policy_optimizer,
+            discount=self._discount,
+            target_averaging=self._target_averaging,
+            target_update_period=self._target_update_period,
+            target_update_rate=self._target_update_rate,
+            dataset=dataset,
+            max_gradient_norm=self._max_gradient_norm,
+            logger=logger,
+        )
+
+        trainer = self._extra_trainer_setup(trainer) # hook
+
+        return trainer
+
+    def _extra_trainer_setup(self, trainer):
+        """NoOp"""
+        return trainer

@@ -1,3 +1,0 @@
-from mava.project.systems.online.independent_dqn.training import IndependentDQNTrainer
-from mava.project.systems.online.independent_dqn.executing import IndependentDQNExecutor
-from mava.project.systems.online.independent_dqn.system_builder import IndependentDQN

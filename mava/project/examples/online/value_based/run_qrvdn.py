@@ -24,9 +24,9 @@ import sonnet as snt
 from absl import app, flags
 
 from mava.components.tf.modules.exploration.exploration_scheduling import (
-    LinearExplorationScheduler,
+    LinearExplorationTimestepScheduler,
 )
-from mava.project.systems.online.independent_dqn import IndependentDQN, IndependentDQNExecutor, IndependentDQNTrainer
+from mava.project.systems.online.value_based.qrvdn import QRVDN
 from mava.utils import lp_utils
 from mava.utils.enums import ArchitectureType
 from mava.utils.environments.smac_utils import make_environment
@@ -68,41 +68,39 @@ def main(_: Any) -> None:
     )
 
     # Distributed program
-    program = IndependentDQN(
+    program = QRVDN(
         environment_factory=environment_factory,
         logger_factory=logger_factory,
-        exploration_scheduler=LinearExplorationScheduler(
-            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=1e-5,
+        exploration_scheduler=LinearExplorationTimestepScheduler(
+            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay_steps=50_000,
         ),
-        optimizer=snt.optimizers.RMSProp(
-            learning_rate=0.0005, epsilon=0.00001, decay=0.99
-        ),
+        optimizer=snt.optimizers.Adam(1e-4),
         checkpoint_subpath=checkpoint_dir,
-        batch_size=32,
-        min_replay_size=32,
+        batch_size=64,
+        min_replay_size=64,
+        sequence_length=61,
+        period=61,
         target_update_period=200,
-        max_gradient_norm=20.0,
+        max_gradient_norm=None,
         samples_per_insert=None,
-        trainer_fn=IndependentDQNTrainer,
-        executor_fn=IndependentDQNExecutor,
     )
 
-    program.run_single_proc_system()
+    # program.run_single_proc_system()
 
-    # program = program.build()
+    program = program.build()
 
-    # # Only the trainer should use the GPU (if available)
-    # local_resources = lp_utils.to_device(
-    #     program_nodes=program.groups.keys(), nodes_on_gpu=["trainer"]
-    # )
+    # Only the trainer should use the GPU (if available)
+    local_resources = lp_utils.to_device(
+        program_nodes=program.groups.keys(), nodes_on_gpu=["trainer"]
+    )
 
-    # # Launch
-    # lp.launch(
-    #     program,
-    #     lp.LaunchType.LOCAL_MULTI_PROCESSING,
-    #     terminal="current_terminal",
-    #     local_resources=local_resources,
-    # )
+    # Launch
+    lp.launch(
+        program,
+        lp.LaunchType.LOCAL_MULTI_PROCESSING,
+        terminal="current_terminal",
+        local_resources=local_resources,
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,3 @@
+from mava.project.systems.online.actor_critic.independent_offpg.training import IndependentOffPGTrainer
+from mava.project.systems.online.actor_critic.independent_offpg.executing import IndependentOffPGExecutor
+from mava.project.systems.online.actor_critic.independent_offpg.system_builder import IndependentOffPG

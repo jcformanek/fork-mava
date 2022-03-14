@@ -7,6 +7,7 @@ import tensorflow as tf
 import sonnet as snt
 from acme import types
 from acme.tf import utils as tf2_utils
+from acme.utils.counting import Counter
 
 from mava.components.tf.modules.exploration.exploration_scheduling import (
     BaseExplorationTimestepScheduler,
