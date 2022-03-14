@@ -32,8 +32,8 @@ class IndependentSACExecutor:
         self._core_states = {}
 
         self._epsilon = 1.0 if not self._evaluator else 0.0
-        self._epsilon_decay = 1e-5
-        self._epsilon_min = 0.05
+        self._epsilon_decay = 1e-4
+        self._epsilon_min = 0.0
 
     def get_stats(self):
         return {"Epsilon": self._epsilon}
