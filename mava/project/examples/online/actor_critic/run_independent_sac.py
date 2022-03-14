@@ -48,9 +48,9 @@ def main(_: Any) -> None:
     """Example running recurrent MADQN on SMAC environment."""
 
     # Environment
-    environment_factory = functools.partial(make_environment, map_name=FLAGS.map_name)
+    # environment_factory = functools.partial(make_environment, map_name=FLAGS.map_name)
 
-    # environment_factory = functools.partial(make_cartpole, num_agents=1)
+    environment_factory = functools.partial(make_cartpole, num_agents=1)
 
     # Checkpointer appends "Checkpoints" to checkpoint_dir
     checkpoint_dir = f"{FLAGS.base_dir}/{FLAGS.mava_id}"
@@ -70,12 +70,12 @@ def main(_: Any) -> None:
     program = IndependentSAC(
         environment_factory=environment_factory,
         logger_factory=logger_factory,
-        critic_optimizer=snt.optimizers.Adam(1e-3),
-        policy_optimizer=snt.optimizers.Adam(1e-3),
+        critic_optimizer=snt.optimizers.Adam(1e-4),
+        policy_optimizer=snt.optimizers.Adam(1e-4),
         checkpoint_subpath=checkpoint_dir,
         batch_size=32,
-        sequence_length=61,
-        period=61,
+        sequence_length=201,
+        period=201,
         min_replay_size=32,
         target_update_period=200,
         max_gradient_norm=20.0,
@@ -83,7 +83,7 @@ def main(_: Any) -> None:
     )
 
     program._samples_per_insert = None
-    program.run_single_proc_system(2)
+    program.run_single_proc_system(1)
 
     # program = program.build()
 
