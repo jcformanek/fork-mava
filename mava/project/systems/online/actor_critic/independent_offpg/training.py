@@ -131,16 +131,16 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
 
             # Q(lambda)
             target = trfl.multistep_forward_view(
-                tf.squeeze(rewards),
-                tf.squeeze(self._discount * env_discounts),
-                tf.squeeze(target_q_vals),
+                tf.squeeze(rewards[:,:-1]),
+                tf.squeeze(self._discount * env_discounts[:,:-1]),
+                tf.squeeze(target_q_vals[:,1:]),
                 lambda_=0.8,
                 back_prop=False
             )
             # Make batch major again
             target = tf.transpose(target, perm=[1,0])
 
-            td_error = tf.stop_gradient(target) - tf.squeeze(q_vals)
+            td_error = tf.stop_gradient(target) - tf.squeeze(q_vals[:,:-1])
             q_loss = 0.5 * tf.square(td_error)
 
             # Masking 
