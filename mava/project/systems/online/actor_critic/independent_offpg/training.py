@@ -133,16 +133,22 @@ class IndependentOffPGTrainer:
                 logits_out.append(logits)
             logits_out = tf.stack(logits_out, axis=1) # stack over time dim
 
+            # Mask illegal actions
+            logits_out = tf.where(legal_actions, logits_out, -1e8)
             probs_out = tf.nn.softmax(logits_out, axis=-1)
+            probs_out = tf.where(legal_actions, probs_out, 0.0)
+            probs_out = probs_out / tf.reduce_sum(probs_out, axis=-1, keepdims=True)
 
             action_values = gather(q_vals, actions)
             baseline = tf.reduce_sum(probs_out * q_vals, axis=-1)
             advantage = action_values - baseline
             cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=actions, logits=logits_out)
-            coe = self._mixer.k(states + 0.0000001)
+            coe = self._mixer.k(states + 1e-8)  # add small number so that zero padded elements don't cause div by zero error
+                                                # they get masked out later
+
             pg_loss = coe * cross_entropy * advantage
 
-            # Masking
+            # Zero-padding masking
             pg_mask = tf.concat([mask] * N, axis=2)
             pg_loss = tf.where(tf.cast(pg_mask, "bool"), pg_loss, 0.0)
             pg_loss = tf.reduce_sum(pg_loss) / tf.reduce_sum(pg_mask)
@@ -158,11 +164,10 @@ class IndependentOffPGTrainer:
             rewards = tf.transpose(rewards, perm=[1,0,2])
             env_discounts = tf.transpose(env_discounts, perm=[1,0,2])
             target_q_vals = tf.transpose(target_q_vals, perm=[1,0,2])
-            target = trfl.generalized_lambda_returns(
+            target = trfl.multistep_forward_view(
                 tf.squeeze(rewards),
                 tf.squeeze(self._discount * env_discounts),
                 tf.squeeze(target_q_vals),
-                bootstrap_value=tf.squeeze(tf.zeros_like(target_q_vals[0])),
                 lambda_=0.8
             )
             target = tf.transpose(target, perm=[1,0])
@@ -174,8 +179,8 @@ class IndependentOffPGTrainer:
             q_loss = q_loss * tf.squeeze(mask[:,:-1])
             q_loss = tf.reduce_sum(q_loss) / tf.reduce_sum(mask[:,:-1])
 
-        # Apply gradients Q-network
-        variables = self._q_network.trainable_variables # Get trainable variables
+        # Apply gradients Q-network and Mixer
+        variables = (*self._q_network.trainable_variables, *self._mixer.trainable_variables) # Get trainable variables
         gradients = tape.gradient(q_loss, variables) # Compute gradients.        
         gradients = tf.clip_by_global_norm(gradients, self._max_gradient_norm)[0] # Maybe clip gradients.
         self._q_optimizer.apply(gradients, variables) # Apply gradients.

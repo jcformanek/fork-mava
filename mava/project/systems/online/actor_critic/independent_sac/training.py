@@ -75,7 +75,7 @@ class IndependentSACTrainer:
         # Automatic temperature tuning term
         self._target_entropy = -np.log((1.0 / num_actions)) * 0.98
         self._log_alpha = tf.Variable(0, trainable=True, dtype="float32")
-        self._alpha_optimizer = snt.optimizers.Adam(learning_rate=1e-3)
+        self._alpha_optimizer = snt.optimizers.Adam(learning_rate=1e-4)
 
         # Expose the network variables.
         self._system_variables: Dict = {
@@ -98,6 +98,8 @@ class IndependentSACTrainer:
         fetches = self._step()
 
         self._logger.write(fetches)
+
+        return fetches
 
     @tf.function
     def _step(self):

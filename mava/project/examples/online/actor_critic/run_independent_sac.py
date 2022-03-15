@@ -27,6 +27,10 @@ from mava.utils.environments.smac_utils import make_environment
 from mava.utils.loggers import logger_utils
 from mava.project.utils.environments import IndependentCartPole
 
+import wandb
+
+wandb.init(project="SAC PROJECT", entity="claude_formanek")
+
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "map_name",

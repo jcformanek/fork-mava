@@ -69,7 +69,7 @@ def main(_: Any) -> None:
         environment_factory=environment_factory,
         logger_factory=logger_factory,
         q_optimizer=snt.optimizers.Adam(1e-4),
-        policy_optimizer=snt.optimizers.Adam(1e-5),
+        policy_optimizer=snt.optimizers.Adam(1e-4),
         checkpoint_subpath=checkpoint_dir,
         batch_size=64,
         sequence_length=61,

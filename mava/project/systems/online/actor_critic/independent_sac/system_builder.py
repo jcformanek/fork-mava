@@ -44,6 +44,7 @@ from mava.components.tf.networks.epsilon_greedy import EpsilonGreedy
 from mava.project.systems.online.actor_critic.independent_sac import IndependentSACTrainer, IndependentSACExecutor
 from mava.project.components.environment_loops import EnvironmentLoop
 
+import wandb
 
 class IndependentSAC:
     """Independent recurrent Off-policy gradients."""
@@ -282,7 +283,7 @@ class IndependentSAC:
 
         return trainer
 
-    def run_single_proc_system(self, training_steps_per_episode = 1, evaluator_period=5):
+    def run_single_proc_system(self, training_steps_per_episode = 1, evaluator_period=20):
         
         replay_tables = self.replay()
         replay_server = reverb.Server(tables=replay_tables)
@@ -304,11 +305,18 @@ class IndependentSAC:
 
             if episode >= self._min_replay_size:
                 for _ in range(training_steps_per_episode):
-                    trainer.step()
+                    trainer_logs = trainer.step()
 
             if episode % evaluator_period == 0:
-                episode_stats = evaluator.run_episode()
+                eval_episode_stats = evaluator.run_episode()
                 evaluator._logger.write(episode_stats)
+
+            # Log to wandb
+            log_dict = {"episode": episode}
+            log_dict.update(episode_stats)
+            # log_dict.update(trainer_logs)
+
+            wandb.log(log_dict)
 
     def build(self, name: str = "sac") -> Any:
         raise NotImplemented("Distributed program not implemented yet.")
