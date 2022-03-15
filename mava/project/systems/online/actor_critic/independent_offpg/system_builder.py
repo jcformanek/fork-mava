@@ -15,6 +15,7 @@
 """Independent Recurrent DQN system implementation."""
 from typing import Any, Callable, Dict, Optional, Type
 
+import functools
 import acme
 import dm_env
 import numpy as np
@@ -205,7 +206,7 @@ class IndependentOffPG(IndependentDQN):
             exploration_schedules = {agent: exploration_scheduler for agent in self._agents}
 
         # Epsilon-greedy action selector
-        action_selector = {"shared_network": EpsilonGreedy}
+        action_selector = {"shared_network": functools.partial(EpsilonGreedy, use_logits=True)}
 
         # Action selectors with epsilon schedulers (one per agent)
         action_selectors_with_epsilon_schedulers = initialize_epsilon_schedulers(

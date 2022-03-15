@@ -71,7 +71,7 @@ def main(_: Any) -> None:
         q_optimizer=snt.optimizers.Adam(1e-4),
         policy_optimizer=snt.optimizers.Adam(1e-4),
         exploration_scheduler=LinearExplorationTimestepScheduler(
-            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay_steps=50_000,
+            epsilon_start=1.0, epsilon_min=0.01, epsilon_decay_steps=50_000,
         ),
         checkpoint_subpath=checkpoint_dir,
         batch_size=64,
