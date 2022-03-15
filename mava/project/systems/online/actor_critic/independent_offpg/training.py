@@ -83,6 +83,8 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
             q_vals, target_q_vals = self._critic_forward(observations, states)     
 
             # Get initial hidden states for RNN
+
+            # TODO MAYBE THERE IS A PROBLEM HERE
             hidden_states = batch["hidden_states"]
             hidden_states = tf.reshape(hidden_states, shape=(1, -1, hidden_states.shape[-1])) # Flatten agent dim into batch dim
 
@@ -111,7 +113,8 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
             coe = self._mixer.k(states + 1e-8)  # add small number so that zero padded elements don't cause div by zero error
                                                 # they get masked out later
 
-            pg_loss = coe * cross_entropy * advantage
+            #PLUS or MINUS here TODO
+            pg_loss = - coe * cross_entropy * advantage
 
             # Zero-padding masking
             pg_mask = tf.concat([mask] * N, axis=2)
