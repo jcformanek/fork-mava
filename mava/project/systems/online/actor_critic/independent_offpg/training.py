@@ -97,10 +97,10 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
             logits_out = tf.stack(logits_out, axis=1) # stack over time dim
 
             # Mask illegal actions
-            # logits_out = tf.where(legal_actions, logits_out, -1e8)
+            logits_out = tf.where(legal_actions, logits_out, -1e8)
             probs_out = tf.nn.softmax(logits_out, axis=-1)
-            # probs_out = tf.where(legal_actions, probs_out, 0.0)
-            # probs_out = probs_out / tf.reduce_sum(probs_out, axis=-1, keepdims=True)
+            probs_out = tf.where(legal_actions, probs_out, 0.0)
+            probs_out = probs_out / tf.reduce_sum(probs_out, axis=-1, keepdims=True)
 
             action_values = gather(q_vals, actions)
             baseline = tf.reduce_sum(probs_out * q_vals, axis=-1)
@@ -134,12 +134,13 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
                 tf.squeeze(rewards),
                 tf.squeeze(self._discount * env_discounts),
                 tf.squeeze(target_q_vals),
-                lambda_=0.8
+                lambda_=0.8,
+                back_prop=False
             )
             # Make batch major again
             target = tf.transpose(target, perm=[1,0])
 
-            td_error = tf.stop_gradient(target[:,1:]) - tf.squeeze(q_vals[:,:-1])
+            td_error = tf.stop_gradient(target) - tf.squeeze(q_vals)
             q_loss = 0.5 * tf.square(td_error)
 
             # Masking 
