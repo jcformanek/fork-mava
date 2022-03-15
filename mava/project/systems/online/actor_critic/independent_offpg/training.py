@@ -131,9 +131,9 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
 
             # Q(lambda)
             target = trfl.multistep_forward_view(
-                tf.squeeze(rewards[:,:-1]),
-                tf.squeeze(self._discount * env_discounts[:,:-1]),
-                tf.squeeze(target_q_vals[:,1:]),
+                tf.squeeze(rewards[:-1,:]),
+                tf.squeeze(self._discount * env_discounts[:-1,:]),
+                tf.squeeze(target_q_vals[1:,:]),
                 lambda_=0.8,
                 back_prop=False
             )
