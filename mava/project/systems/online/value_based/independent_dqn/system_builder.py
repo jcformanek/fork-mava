@@ -206,6 +206,8 @@ class IndependentDQN:
             variable_update_period=self._executor_variable_update_period
         ) # hook
 
+        executor = self._extra_executor_setup(executor, evaluator=True) # hook
+
         # Create the loop to connect environment and executor
         executor_environment_loop = self._train_loop_fn(
             environment,
@@ -235,6 +237,8 @@ class IndependentDQN:
         """
         # Executor with no exploration and no adder
         executor = self._build_executor(variable_source, evaluator=True) # hook
+
+        executor = self._extra_executor_setup(executor, evaluator=True) # hook
 
         # Make the environment
         environment = self._environment_factory()  # type: ignore
@@ -280,6 +284,9 @@ class IndependentDQN:
 
         # Make the trainer
         trainer = self._build_trainer(dataset, logger) # hook
+
+        # Possibly do extra trainer setup
+        trainer = self._extra_trainer_setup(trainer) # hook
 
         return trainer
 
@@ -450,9 +457,9 @@ class IndependentDQN:
 
         return executor
 
-    def _extra_trainer_setup(self, trainer):
+    def _extra_executor_setup(self, executor, evaluator=False):
         """NoOp"""
-        return trainer
+        return executor
 
     def _build_trainer(self, dataset, logger):
         # Create the network
@@ -471,6 +478,8 @@ class IndependentDQN:
                 logger=logger,
             )
 
-        trainer = self._extra_trainer_setup(trainer) # hook
+        return trainer
 
+    def _extra_trainer_setup(self, trainer):
+        """NoOp"""
         return trainer

@@ -12,16 +12,15 @@ from mava.project.components.mixers import QMixer
 
 from mava.utils import training_utils as train_utils
 from mava.project.utils.tf_utils import gather
+from mava.project.systems.online.value_based.independent_dqn import IndependentDQNTrainer
 
-class IndependentOffPGTrainer:
+class IndependentOffPGTrainer(IndependentDQNTrainer):
 
     def __init__(
         self,
         agents: List[str],
         q_network: snt.Module,
-        policy_network: snt.Module,
-        q_optimizer: snt.Optimizer,
-        policy_optimizer: snt.Optimizer,
+        optimizer: snt.Optimizer,
         discount: float,
         target_averaging: bool,
         target_update_period: int,
@@ -35,63 +34,26 @@ class IndependentOffPGTrainer:
         Args:
             TODO
         """
-        self._agents = agents
-        self._logger = logger
+        super().__init__(
+            agents,
+            q_network,
+            optimizer,
+            discount,
+            target_averaging,
+            target_update_period,
+            target_update_rate,
+            dataset,
+            max_gradient_norm,
+            logger
+        )
 
-        # Store online and target Q-networks
-        self._q_network = q_network
-        self._target_q_network = copy.deepcopy(q_network)
-
-        # Store online and target policy networks
-        self._policy_network = policy_network
-
-        # Other learner parameters.
-        self._discount = discount
-
-        # Set up gradient clipping
-        if max_gradient_norm is not None:
-            self._max_gradient_norm = tf.convert_to_tensor(max_gradient_norm, "float32")
-        else:  # A very large number. Infinity can result in NaNs
-            self._max_gradient_norm = tf.convert_to_tensor(1e10, "float32")
-
-        # Set up target network updating
-        self._num_steps = tf.Variable(0, dtype=tf.int32)
-        self._target_averaging = target_averaging
-        self._target_update_period = target_update_period
-        self._target_update_rate = target_update_rate
-
-        # Create an iterator to go through the dataset.
-        self._iterator = iter(dataset)
-
-        # Optimizers
-        self._policy_optimizer = policy_optimizer
-        self._q_optimizer = q_optimizer
-
-        # Expose the network variables.
-        self._system_variables: Dict = {
-            "policy_network": self._policy_network.variables,
-        }
-
-        # Do not record timestamps until after the first learning step is done.
-        # This is to avoid including the time it takes for actors to come online and
-        # fill the replay buffer.
-        self._timestamp: Optional[float] = None
-
-        self._mask_before_softmax = True
-        self._mixer = QMixer(len(self._agents))
-        self._target_mixer = QMixer(len(self._agents))
-        self._td_lambda = 0.8
-
-    def run(self) -> None:
-        while True:
-            self.step()
-
-    def step(self) -> None:
-        """Trainer step to update the parameters of the agents in the system"""
-        # fetches = self._step()
-        fetches = self._step()
-
-        self._logger.write(fetches)
+        # Initialized during extras setup
+        self._policy_network = None
+        self._policy_optimizer = None
+        self._mixer = None
+        self._target_mixer = None
+        self._td_lambda = None
+        self._q_optimizer = None
 
     @tf.function
     def _step(self):
@@ -121,7 +83,8 @@ class IndependentOffPGTrainer:
             q_vals, target_q_vals = self._critic_forward(observations, states)     
 
             # Get initial hidden states for RNN
-            hidden_states = self._policy_network.initial_state(B*N) # Flatten agent dim into batch dim
+            hidden_states = batch["hidden_states"]
+            hidden_states = tf.reshape(hidden_states, shape=(1, -1, hidden_states.shape[-1])) # Flatten agent dim into batch dim
 
             # Unroll the policy
             logits_out = []
@@ -161,15 +124,19 @@ class IndependentOffPGTrainer:
             q_vals = self._mixer(q_vals, states)
             target_q_vals = self._target_mixer(target_q_vals, states)
 
+            # Make time major for trfl
             rewards = tf.transpose(rewards, perm=[1,0,2])
             env_discounts = tf.transpose(env_discounts, perm=[1,0,2])
             target_q_vals = tf.transpose(target_q_vals, perm=[1,0,2])
+
+            # Q(lambda)
             target = trfl.multistep_forward_view(
                 tf.squeeze(rewards),
                 tf.squeeze(self._discount * env_discounts),
                 tf.squeeze(target_q_vals),
                 lambda_=0.8
             )
+            # Make batch major again
             target = tf.transpose(target, perm=[1,0])
 
             td_error = tf.stop_gradient(target[:,1:]) - tf.squeeze(q_vals[:,:-1])
@@ -201,60 +168,29 @@ class IndependentOffPGTrainer:
         train_utils.safe_del(self, "tape")
 
         return {"q_loss": q_loss, "policy_loss": pg_loss}
-        
-    def get_variables(self, names):
-        return [tf2_utils.to_numpy(self._system_variables[name]) for name in names]
 
     # HOOKS
 
-    def _batch_inputs(self, inputs):
-        # Unpack inputs
-        data = inputs.data
-        observations, actions, rewards, discounts, _, extras = (
-            data.observations,
-            data.actions,
-            data.rewards,
-            data.discounts,
-            data.start_of_episode,
-            data.extras,
-        )
+    def extra_setup(self, **kwargs):
+        # Store policy _network and optimizer
+        self._policy_network = kwargs["policy_network"]
+        self._policy_optimizer = kwargs["policy_optimizer"]
 
-        all_observations = []
-        all_legals = []
-        all_actions = []
-        all_rewards = []
-        all_discounts = []
-        for agent in self._agents:
-            all_observations.append(observations[agent].observation)
-            all_legals.append(observations[agent].legal_actions)
-            all_actions.append(actions[agent])
-            all_rewards.append(rewards[agent])
-            all_discounts.append(discounts[agent])
-
-        all_observations = tf.stack(all_observations, axis=-2) # (B,T,N,O)
-        all_legals = tf.stack(all_legals, axis=-2) # (B,T,N,A)
-        all_actions = tf.stack(all_actions, axis=-1) # (B,T,N,1)
-        all_rewards = tf.reduce_mean(tf.stack(all_rewards, axis=-1), axis=-1, keepdims=True) # (B,T,1)
-        all_discounts = tf.reduce_mean(tf.stack(all_discounts, axis=-1), axis=-1, keepdims=True) # (B,T,1)
-
-        # Cast legals to bool
-        all_legals = tf.cast(all_legals, "bool")
-
-        mask = tf.expand_dims(extras["zero_padding_mask"], axis=-1) # (B,T,1)
-
-        states = extras["s_t"] if "s_t" in extras else None # (B,T,N,S)
-
-        batch = {
-            "observations": all_observations,
-            "actions": all_actions,
-            "rewards": all_rewards,
-            "discounts": all_discounts,
-            "legals": all_legals,
-            "mask": mask,
-            "states": states
+        # Overwrite system variables, executor only needs policy_variables
+        self._system_variables: Dict = {
+            "policy_network": self._policy_network.variables,
         }
 
-        return batch
+        # Setup mixers
+        self._mixer = QMixer(len(self._agents))
+        self._target_mixer = QMixer(len(self._agents))
+
+        # Store TD Lambda
+        self._td_lambda = kwargs["lambda_"]
+
+        # Make this link for readability
+        self._q_optimizer = self._optimizer
+        
 
     def _policy_forward(self, observations, hidden_states):
         """Step policy forward by one timestep."""
@@ -288,24 +224,3 @@ class IndependentOffPGTrainer:
         )
 
         return online_variables, target_variables
-
-    def _update_target_network(self, online_variables, target_variables) -> None:
-        """Update the target networks.
-
-        Using either target averaging or
-        by directy copying the weights of the online networks every few steps.
-        """
-        # Soft update
-        if self._target_averaging:
-            assert 0.0 < self._target_update_rate < 1.0
-            tau = self._target_update_rate
-            for src, dest in zip(online_variables, target_variables):
-                dest.assign(dest * (1.0 - tau) + src * tau)
-
-        # Or hard update
-        elif tf.math.mod(self._num_steps, self._target_update_period) == 0:
-            # Make online -> target network update ops.
-            for src, dest in zip(online_variables, target_variables):
-                dest.assign(src)
-
-        self._num_steps.assign_add(1)

@@ -75,7 +75,7 @@ def main(_: Any) -> None:
         sequence_length=61,
         period=61,
         min_replay_size=64,
-        target_update_period=100,
+        target_update_period=200,
         max_gradient_norm=20.0,
         samples_per_insert=None,
     )

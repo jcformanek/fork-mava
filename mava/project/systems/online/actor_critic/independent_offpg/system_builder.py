@@ -71,8 +71,8 @@ class IndependentOffPG(IndependentDQN):
         policy_optimizer: snt.Optimizer = snt.optimizers.Adam(
             learning_rate=1e-4
         ),
-        sequence_length: int = 20,
-        period: int = 10,
+        sequence_length: int = 61,
+        period: int = 61,
         max_gradient_norm: float = 20,
         checkpoint: bool = True,
         checkpoint_subpath: str = "~/mava/",
@@ -124,15 +124,26 @@ class IndependentOffPG(IndependentDQN):
 
         # Policy optimizer
         self._policy_optimizer = policy_optimizer
-
-        # NOTE Q-optimizer stored by super
-        # We create this link for convenience
-        self._q_optimizer = self._optimizer
-
-    def build(self, name: str = "offpg") -> Any:
-        raise NotImplemented("Distributed program not implemented yet.")
     
     # PRIVATE METHODS AND HOOKS
+    def _get_extras_spec(self) -> Any:
+        """Helper to establish specs for extras.
+
+        Returns:
+            Dictionary containing extras spec
+        """
+        policy_network = self._initialise_policy_network() # hook
+
+        core_state_specs = {}
+        for agent in self._agents:
+            core_state_specs[agent] = (
+                tf2_utils.squeeze_batch_dim(
+                    policy_network.initial_state(1)
+                ),
+            )
+
+        return {"core_states": core_state_specs, "zero_padding_mask": np.array(1)}
+
     def _initialise_q_network(self):
 
         spec = list(self._environment_spec.get_agent_specs().values())[0]
@@ -182,16 +193,49 @@ class IndependentOffPG(IndependentDQN):
         policy_network(dummy_observation, dummy_core_state)
 
         return policy_network
-    
-    def _get_extras_spec(self) -> Any:
-        """Helper to establish specs for extras.
 
-        Returns:
-            Dictionary containing extras spec
-        """
-        return {"zero_padding_mask": np.array(1)}
+    def _build_executor(self, variable_source, evaluator=False, adder=None, exploration_scheduler=None, variable_update_period=1):
+        # TODO make this function more general so that we dont need to overwrite it from super
 
-    def _build_variable_client(self, variable_source, network, update_period=1):
+        # Exploration scheduler
+        if exploration_scheduler is None:
+            # Constant zero exploration
+            exploration_schedules = {agent: ConstantScheduler(epsilon=0.0) for agent in self._agents}
+        else:
+            exploration_schedules = {agent: exploration_scheduler for agent in self._agents}
+
+        # Epsilon-greedy action selector
+        action_selector = {"shared_network": EpsilonGreedy}
+
+        # Action selectors with epsilon schedulers (one per agent)
+        action_selectors_with_epsilon_schedulers = initialize_epsilon_schedulers(
+            exploration_schedules,
+            action_selector,
+            agent_net_keys=self._agent_net_keys,
+            seed=self._seed,
+        )
+
+        # Initialise Q-network
+        q_network = self._initialise_q_network() # hook
+
+        # Add policy network to variable client
+        policy_network = self._initialise_policy_network()
+        # Variable client
+        variable_client = self._build_variable_client(variable_source, policy_network, update_period=variable_update_period) # hook
+
+        # Executor
+        executor =  self._executor_fn(
+            agents=self._agents,
+            q_network=q_network,
+            action_selectors=action_selectors_with_epsilon_schedulers,
+            variable_client=variable_client,
+            adder=adder,
+            evaluator=evaluator
+        )
+
+        return executor
+
+    def _build_variable_client(self, variable_source, network, update_period):
         # Get variables
         variables = {"policy_network": network.variables}
 
@@ -208,50 +252,20 @@ class IndependentOffPG(IndependentDQN):
 
         return variable_client
 
-
-    def _build_executor(self, variable_source, exploration_scheduler=None, evaluator=False, adder=None, variable_update_period=1):
-
-        # Initialise Q-network
+    def _extra_executor_setup(self, executor, evaluator=False):
+        # Initialise policy network
         policy_network = self._initialise_policy_network()
 
-        # Variable client
-        variable_client = self._build_variable_client(variable_source, policy_network, update_period=variable_update_period)
-
-        # Executor
-        executor =  self._executor_fn(
-            agents=self._agents,
-            policy_network=policy_network,
-            variable_client=variable_client,
-            adder=adder,
-            evaluator=evaluator
-        )
+        executor.extra_setup(policy_network=policy_network)
 
         return executor
 
-    def _build_trainer(self, dataset, logger):
-        # Create the networks
-        q_network = self._initialise_q_network() # hook
+    def _extra_trainer_setup(self, trainer):
         policy_network = self._initialise_policy_network() # hook
 
-        trainer =  self._trainer_fn(
-            agents=self._agents,
-            policy_network=policy_network,
-            q_network=q_network,
-            q_optimizer=self._q_optimizer,
+        trainer.extra_setup(
+            policy_network=policy_network, 
             policy_optimizer=self._policy_optimizer,
-            discount=self._discount,
-            target_averaging=self._target_averaging,
-            target_update_period=self._target_update_period,
-            target_update_rate=self._target_update_rate,
-            dataset=dataset,
-            max_gradient_norm=self._max_gradient_norm,
-            logger=logger,
+            lambda_=0.8
         )
-
-        trainer = self._extra_trainer_setup(trainer) # hook
-
-        return trainer
-
-    def _extra_trainer_setup(self, trainer):
-        """NoOp"""
         return trainer

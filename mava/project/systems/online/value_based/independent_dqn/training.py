@@ -175,6 +175,10 @@ class IndependentDQNTrainer:
 
     # HOOKS
 
+    def extra_setup(self, **kwargs):
+        """Noop"""
+        return
+
     def _batch_inputs(self, inputs):
         # Unpack inputs
         data = inputs.data

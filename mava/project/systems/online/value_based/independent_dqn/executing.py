@@ -41,9 +41,7 @@ class IndependentDQNExecutor:
         timestep: dm_env.TimeStep,
         extras: Dict = {}
     ):
-        # Re-initialize the recurrent core states.
-        for agent in timestep.observation.keys():
-            self._core_states[agent] = self._q_network.initial_state(1)
+        self._reinitialize_core_states()
 
         if self._adder is not None:
             # Convert core states to numpy arrays
@@ -55,7 +53,6 @@ class IndependentDQNExecutor:
             extras.update(
                 {"core_states": numpy_states, "zero_padding_mask": np.array(1)}
             )
-
 
             # Adder
             self._adder.add_first(timestep, extras)
@@ -134,8 +131,16 @@ class IndependentDQNExecutor:
         if self._variable_client:
             self._variable_client.update(wait)  
 
+    # HOOKS
 
-    # PRIVATE METHODS AND HOOKS
+    def extra_setup(self, **kwargs):
+        """Noop"""
+        return
+
+    def _reinitialize_core_states(self):
+        # Re-initialize the recurrent core states with policy network.
+        for agent in self._agents:
+            self._core_states[agent] = self._q_network.initial_state(1)
 
     @tf.function
     def _select_actions(self, observations: Dict, core_states: Dict):
