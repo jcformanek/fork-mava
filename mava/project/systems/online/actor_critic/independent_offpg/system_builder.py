@@ -40,7 +40,7 @@ from mava.types import EpsilonScheduler
 from mava.utils.loggers import MavaLogger
 from mava.wrappers import DetailedPerAgentStatistics
 from mava.utils.builder_utils import initialize_epsilon_schedulers
-from mava.components.tf.networks.epsilon_greedy import EpsilonGreedy
+from mava.project.components.epsilon_greedy import EpsilonGreedy
 from mava.project.systems.online.actor_critic.independent_offpg import IndependentOffPGTrainer, IndependentOffPGExecutor
 from mava.project.systems.online.value_based.independent_dqn import IndependentDQN
 from mava.project.components.environment_loops import EnvironmentLoop
