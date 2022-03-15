@@ -97,10 +97,10 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
             logits_out = tf.stack(logits_out, axis=1) # stack over time dim
 
             # Mask illegal actions
-            logits_out = tf.where(legal_actions, logits_out, -1e8)
+            # logits_out = tf.where(legal_actions, logits_out, -1e8)
             probs_out = tf.nn.softmax(logits_out, axis=-1)
-            probs_out = tf.where(legal_actions, probs_out, 0.0)
-            probs_out = probs_out / tf.reduce_sum(probs_out, axis=-1, keepdims=True)
+            # probs_out = tf.where(legal_actions, probs_out, 0.0)
+            # probs_out = probs_out / tf.reduce_sum(probs_out, axis=-1, keepdims=True)
 
             action_values = gather(q_vals, actions)
             baseline = tf.reduce_sum(probs_out * q_vals, axis=-1)
