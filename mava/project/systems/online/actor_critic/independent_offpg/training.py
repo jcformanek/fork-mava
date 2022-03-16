@@ -97,7 +97,11 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
                 logits_out.append(logits)
             logits_out = tf.stack(logits_out, axis=1) # stack over time dim
 
+            # tf.print("LOGITS", tf.reduce_sum(logits_out))
+
             probs_out = tf.nn.softmax(logits_out, axis=-1)
+
+            # tf.print("PROBS", tf.reduce_sum(probs_out))
 
             # Add epsilon noise
             # Dithering action distribution.
@@ -120,17 +124,20 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
 
             pg_mask = tf.concat([mask] * N, axis=2)
             pi_taken = gather(probs_out, actions)
-            pi_taken = tf.where(tf.cast(pg_mask, "bool"), pi_taken, 1.0)
+            pi_taken = pi_taken + 1e-8
             log_pi_taken = tf.math.log(pi_taken)
             coe = self._mixer.k(states + 1e-8)  # add small number so that zero padded elements don't cause div by zero error
                                                 # they get masked out later
 
-            #PLUS or MINUS here TODO
+            # tf.print(coe, advantage, log_pi_taken)
+
             pg_loss = - coe * log_pi_taken * advantage
 
             # Zero-padding masking
             pg_loss = pg_loss * pg_mask
             pg_loss = tf.reduce_sum(pg_loss) / tf.reduce_sum(pg_mask)
+
+            # tf.print("PGLOSS", pg_loss)
 
             # Critic learning
             q_vals = gather(q_vals, actions, axis=-1)
