@@ -191,10 +191,6 @@ class IndependentDQNTrainer:
             data.extras,
         )
 
-        # Get initial state of the RNN from replay and
-        # extract the first state in the sequence.
-        hidden_states = tree.map_structure(lambda s: s[:, 0, :], extras["core_states"])
-
         all_observations = []
         all_legals = []
         all_actions = []
@@ -207,7 +203,7 @@ class IndependentDQNTrainer:
             all_actions.append(actions[agent])
             all_rewards.append(rewards[agent])
             all_discounts.append(discounts[agent])
-            all_hidden_states.append(hidden_states[agent][0])
+            all_hidden_states.append(extras["core_states"][agent][0][0]) # TODO why are states nested here
 
         all_observations = tf.stack(all_observations, axis=-2) # (B,T,N,O)
         all_legals = tf.stack(all_legals, axis=-2) # (B,T,N,A)

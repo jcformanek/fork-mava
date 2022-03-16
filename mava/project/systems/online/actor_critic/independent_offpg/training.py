@@ -83,10 +83,9 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
             q_vals, target_q_vals = self._critic_forward(observations, states)     
 
             # Get initial hidden states for RNN
-
-            # TODO MAYBE THERE IS A PROBLEM HERE
-            hidden_states = batch["hidden_states"]
-            hidden_states = tf.reshape(hidden_states, shape=(1, -1, hidden_states.shape[-1])) # Flatten agent dim into batch dim
+            hidden_states = batch["hidden_states"][:,0] # Only first timestep
+            hidden_states = tf.reshape(hidden_states, shape=(-1, hidden_states.shape[-1])) # Flatten agent dim into batch dim
+            hidden_states = (hidden_states,)
 
             # Unroll the policy
             logits_out = []
@@ -98,26 +97,38 @@ class IndependentOffPGTrainer(IndependentDQNTrainer):
                 logits_out.append(logits)
             logits_out = tf.stack(logits_out, axis=1) # stack over time dim
 
+            probs_out = tf.nn.softmax(logits_out, axis=-1)
+
+            # Add epsilon noise
+            # Dithering action distribution.
+            # dither_probs = (
+            #     1
+            #     / tf.reduce_sum(legal_actions, axis=-1, keepdims=True)
+            #     * legal_actions
+            # )
+            # probs = epsilon * dither_probs + (1 - epsilon) * probs_out
+
             # Mask illegal actions
             # logits_out = tf.where(legal_actions, logits_out, -1e8)
-            probs_out = tf.nn.softmax(logits_out, axis=-1)
-            probs_out = tf.where(legal_actions, probs_out, 0.0)
-            probs_sum = tf.reduce_sum(probs_out, axis=-1, keepdims=True)
-            sum_is_zero = probs_sum == 0.0 # True for zero padded inputs
-            probs_out = tf.where(sum_is_zero, 1.0, probs_out / tf.reduce_sum(probs_out, axis=-1, keepdims=True)) # so we don't divide by zero
+            probs_out = probs_out * tf.cast(legal_actions, "float32")
+            probs_sum = tf.reduce_sum(probs_out, axis=-1, keepdims=True) + 1e-8 # avoid div by zero
+            probs_out = probs_out / probs_sum
 
             action_values = gather(q_vals, actions)
             baseline = tf.reduce_sum(probs_out * q_vals, axis=-1)
             advantage = action_values - baseline
-            cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=actions, logits=logits_out)
+
+            pg_mask = tf.concat([mask] * N, axis=2)
+            pi_taken = gather(probs_out, actions)
+            pi_taken = tf.where(tf.cast(pg_mask, "bool"), pi_taken, 1.0)
+            log_pi_taken = tf.math.log(pi_taken)
             coe = self._mixer.k(states + 1e-8)  # add small number so that zero padded elements don't cause div by zero error
                                                 # they get masked out later
 
             #PLUS or MINUS here TODO
-            pg_loss = - coe * cross_entropy * advantage
+            pg_loss = - coe * log_pi_taken * advantage
 
             # Zero-padding masking
-            pg_mask = tf.concat([mask] * N, axis=2)
             pg_loss = pg_loss * pg_mask
             pg_loss = tf.reduce_sum(pg_loss) / tf.reduce_sum(pg_mask)
 

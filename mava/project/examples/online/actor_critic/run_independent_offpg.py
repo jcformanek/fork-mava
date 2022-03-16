@@ -71,14 +71,14 @@ def main(_: Any) -> None:
         q_optimizer=snt.optimizers.Adam(1e-4),
         policy_optimizer=snt.optimizers.Adam(1e-4),
         exploration_scheduler=LinearExplorationTimestepScheduler(
-            epsilon_start=1.0, epsilon_min=0.01, epsilon_decay_steps=50_000,
+            epsilon_start=0.5, epsilon_min=0.05, epsilon_decay_steps=500_000,
         ),
         checkpoint_subpath=checkpoint_dir,
-        batch_size=64,
+        batch_size=10,
         sequence_length=61,
         period=61,
-        min_replay_size=64,
-        target_update_period=200,
+        min_replay_size=10,
+        target_update_period=600,
         max_gradient_norm=20.0,
         samples_per_insert=None,
     )

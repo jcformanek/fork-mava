@@ -100,30 +100,39 @@ class EpsilonGreedy(snt.Module):
             greedy_probs /= tf.reduce_sum(greedy_probs, axis=-1, keepdims=True)
         else:
             # Logits
-            masked_values = tf.where(
-                tf.equal(legal_actions_mask, 1),
-                values,
-                tf.fill(tf.shape(values), -np.inf),
-            )
+            # masked_values = tf.where(
+            #     tf.equal(legal_actions_mask, 1),
+            #     values,
+            #     tf.fill(tf.shape(values), -np.inf),
+            # )
+            masked_values = values
             greedy_probs = tf.nn.softmax(masked_values, axis=-1)
-            greedy_probs = tf.where(
-                tf.equal(legal_actions_mask, 1),
-                greedy_probs,
-                tf.fill(tf.shape(values), 0.0),
-            )
-            greedy_probs = greedy_probs / tf.reduce_sum(greedy_probs, axis=-1, keepdims=True)
+            # greedy_probs = tf.where(
+            #     tf.equal(legal_actions_mask, 1),
+            #     greedy_probs,
+            #     tf.fill(tf.shape(values), 0.0),
+            # )
+            # greedy_probs = greedy_probs / tf.reduce_sum(greedy_probs, axis=-1, keepdims=True)
         
 
         # Epsilon-greedy action distribution.
         probs = self._epsilon * dither_probs + (1 - self._epsilon) * greedy_probs
 
-        # Make the policy object.
-        policy = tfp.distributions.Categorical(probs=probs)
+        # Masked probs
+        masked_probs = probs * legal_actions_mask
+        masked_probs = probs / (tf.reduce_sum(probs, axis=-1, keepdims=True) + 1e-8) # avoid div by zero
 
-        if self._seed:
-            action = policy.sample(seed=self._seed)
+        # DOP adds epsilon noise twice
+        masked_probs = self._epsilon * dither_probs + (1 - self._epsilon) * masked_probs
+        masked_probs = masked_probs * legal_actions_mask
+
+        # Make the policy object.
+        if self._epsilon == 0:
+            action = tf.argmax(masked_probs, axis=-1)
         else:
-            action = policy.sample()
+            action = tfp.distributions.Categorical(probs=masked_probs).sample()
+
+
         # Return sampled action.
         return tf.cast(action, "int64")
 
