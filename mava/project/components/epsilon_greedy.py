@@ -128,7 +128,7 @@ class EpsilonGreedy(snt.Module):
 
         # Make the policy object.
         if self._epsilon == 0:
-            action = tf.argmax(masked_probs, axis=-1)
+            action = tf.argmax(masked_probs, axis=-1, output_type="int32")
         else:
             action = tfp.distributions.Categorical(probs=masked_probs).sample()
 
