@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional
 
 import copy
-import tree
+import trfl
 import reverb
 import tensorflow as tf
 import sonnet as snt
@@ -68,6 +68,9 @@ class IndependentDQNTrainer:
         # fill the replay buffer.
         self._timestamp: Optional[float] = None
 
+        # Optional Q(lambda)
+        self._lambda = 0.8
+
     def run(self) -> None:
         while True:
             self.step()
@@ -104,8 +107,9 @@ class IndependentDQNTrainer:
         
 
         # Get initial hidden states for RNN
-        hidden_states = batch["hidden_states"]
-        hidden_states = tf.reshape(hidden_states, shape=(1, -1, hidden_states.shape[-1])) # Flatten agent dim into batch dim
+        initial_hidden_states = batch["hidden_states"][:,0] # Only first timestep
+        initial_hidden_states = tf.reshape(initial_hidden_states, shape=(-1, initial_hidden_states.shape[-1])) # Flatten agent dim into batch dim
+        hidden_states = (initial_hidden_states,)
 
         # Compute target Q-values
         target_qs_out = []
@@ -118,9 +122,8 @@ class IndependentDQNTrainer:
         target_qs_out = tf.stack(target_qs_out, axis=1) # stack over time dim
 
         with tf.GradientTape() as tape:
-            # Get initial hidden states for RNN
-            hidden_states = batch["hidden_states"]
-            hidden_states = tf.reshape(hidden_states, shape=(1, -1, hidden_states.shape[-1])) # Flatten agent dim into batch dim
+            # Initial hidden states
+            hidden_states = (initial_hidden_states,)
 
             # Compute online Q-values
             qs_out = []
@@ -251,8 +254,41 @@ class IndependentDQNTrainer:
         return chosen_action_qs, target_max_qs
 
     def _compute_targets(self, rewards, env_discounts, target_max_qs):
-        targets = tf.stop_gradient(rewards + self._discount * env_discounts * target_max_qs)
-        return targets
+        if self._lambda is not None:
+            # Duplicate rewards and discount for all agents
+            rewards = tf.concat([rewards]*3, axis=-1)
+            env_discounts = tf.concat([env_discounts]*3, axis=-1)
+
+            # Make time major for trfl
+            rewards = tf.transpose(rewards, perm=[1,0,2])
+            env_discounts = tf.transpose(env_discounts, perm=[1,0,2])
+            target_max_qs = tf.transpose(target_max_qs, perm=[1,0,2])
+
+            # Get time and batch dim
+            T = rewards.shape[0]
+            B = rewards.shape[1]
+
+            # Flatten agent dim into batch-dim
+            rewards = tf.reshape(rewards, shape=(T, -1))
+            env_discounts = tf.reshape(env_discounts, shape=(T, -1))
+            target_max_qs = tf.reshape(target_max_qs, shape=(T, -1))
+
+            # Q(lambda)
+            targets = trfl.multistep_forward_view(
+                rewards,
+                self._discount * env_discounts,
+                target_max_qs,
+                lambda_=self._lambda,
+                back_prop=False
+            )
+            # Unpack agent dim again
+            targets = tf.reshape(targets, shape=(T, B, -1))
+
+            # Make batch major again
+            targets = tf.transpose(targets, perm=[1,0,2])
+        else:
+            targets = rewards + self._discount * env_discounts * target_max_qs
+        return tf.stop_gradient(targets)
 
     def _compute_loss(self, chosen_actions_qs, targets):
         td_error = (chosen_actions_qs - targets)
