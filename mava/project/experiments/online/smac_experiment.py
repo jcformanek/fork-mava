@@ -9,11 +9,9 @@ from mava.project.systems.online import IndependentDQN, IndependentQRDQN, VDN, Q
 import tensorflow as tf
 import os
 
-physical_devices = tf.config.list_physical_devices("GPU")
-if physical_devices:
-    tf.config.experimental.set_memory_growth(physical_devices[0], True)
-    
-os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+physical_devices = tf.config.list_physical_devices('GPU') 
+for device in physical_devices:
+    tf.config.experimental.set_memory_growth(device, True)
 
 # WandB
 wandb.init(project="Online SMAC", entity="claude_formanek")
