@@ -6,6 +6,15 @@ from mava.utils.loggers import logger_utils
 from mava.utils.environments.smac_utils import make_environment
 from mava.project.systems.online import IndependentDQN, IndependentQRDQN, VDN, QMIX, QRVDN
 
+import tensorflow as tf
+import os
+
+physical_devices = tf.config.list_physical_devices("GPU")
+if physical_devices:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+
 # WandB
 wandb.init(project="Online SMAC", entity="claude_formanek")
 
