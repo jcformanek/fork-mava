@@ -9,9 +9,6 @@ from mava.project.systems.online import IndependentDQN, IndependentQRDQN, VDN, Q
 import tensorflow as tf
 import os
 
-physical_devices = tf.config.list_physical_devices('GPU') 
-for device in physical_devices:
-    tf.config.experimental.set_memory_growth(device, True)
 
 # WandB
 wandb.init(project="Online SMAC", entity="claude_formanek")
@@ -37,7 +34,7 @@ LAMBDA = 0.8
 MAX_EXECUTOR_STEPS = 1_000_000
 TRAIN_STEPS_PER_EPISODE = 2
 EVALUATOR_PERIOD = 15
-BATCH_SIZE=512
+BATCH_SIZE=128
 TARGET_UPDATE_PERIOD=200
 LR = 1e-4 # TODO
 
