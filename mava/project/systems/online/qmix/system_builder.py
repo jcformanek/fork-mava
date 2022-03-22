@@ -66,6 +66,8 @@ class QMIX(IndependentDQN):
         termination_condition: Optional[Dict[str, int]] = None,
         evaluator_interval: Optional[dict] = None,
         seed: Optional[int] = None,
+        offline_environment_logging = False,
+        offline_environment_logging_kwargs = {}
     ):
         """Initialise the system.
 
@@ -102,6 +104,8 @@ class QMIX(IndependentDQN):
             termination_condition=termination_condition,
             evaluator_interval=evaluator_interval,
             seed=seed,
+            offline_environment_logging=offline_environment_logging,
+            offline_environment_logging_kwargs=offline_environment_logging_kwargs
         )
 
         self._trainer_fn = QMIXTrainer

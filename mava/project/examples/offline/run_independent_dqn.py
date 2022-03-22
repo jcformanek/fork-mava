@@ -69,7 +69,7 @@ def main(_: Any) -> None:
     # Distributed program
     program = OfflineIndependentDQN(
         environment_factory=environment_factory,
-        offline_env_log_dir="./offline_3m",
+        offline_env_log_dir="./datasets/offline_3m",
         shuffle_buffer_size=1_000,
         logger_factory=logger_factory,
         optimizer=snt.optimizers.Adam(1e-4),

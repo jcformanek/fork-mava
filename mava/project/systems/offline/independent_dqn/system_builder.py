@@ -46,6 +46,7 @@ from mava.project.systems.online.independent_dqn import IndependentDQN
 from mava.project.components.environment_loops import EnvironmentLoop
 from mava.project.components.offline import MAOfflineEnvironmentDataset
 from mava.project.systems.offline.offline_system import OfflineSystem
+from mava.project.systems.offline.independent_dqn.training import BatchConstrainedIndependentDQNTrainer
 
 import wandb
 
@@ -112,3 +113,33 @@ class OfflineIndependentDQN(OfflineSystem, IndependentDQN):
 
         self._offline_env__log_dir = offline_env_log_dir
         self._shuffle_buffer_size = shuffle_buffer_size
+
+        self._trainer_fn = BatchConstrainedIndependentDQNTrainer
+
+    def _extra_trainer_setup(self, trainer):
+        behaviour_cloning_network = self._initialise_behaviour_cloning_network()
+        behaviour_cloning_optimizer = snt.optimizers.Adam(1e-4)
+        trainer.extra_setup(threshold=0.3, lambda_=self._lambda, behaviour_cloning_network=behaviour_cloning_network, behaviour_cloning_optimizer=behaviour_cloning_optimizer)
+
+        return trainer
+
+    def _initialise_behaviour_cloning_network(self):
+        spec = list(self._environment_spec.get_agent_specs().values())[0]
+        num_actions = spec.actions.num_values
+        dummy_observation = tf.expand_dims(tf.zeros_like(spec.observations.observation), axis=0)
+
+        behaviour_cloning_network = snt.DeepRNN(
+            [
+                snt.Linear(64),
+                snt.GRU(64),
+                snt.Linear(num_actions),
+                tf.keras.layers.Softmax()
+            ]
+        )
+        # Dummy recurent core state
+        dummy_core_state = behaviour_cloning_network.initial_state(1)
+
+        # Initialize variables
+        behaviour_cloning_network(dummy_observation, dummy_core_state)
+
+        return behaviour_cloning_network

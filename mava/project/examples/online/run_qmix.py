@@ -34,7 +34,7 @@ from mava.utils.loggers import logger_utils
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "map_name",
-    "3m",
+    "3s5z",
     "Starcraft 2 micromanagement map name (str).",
 )
 
@@ -75,19 +75,25 @@ def main(_: Any) -> None:
         ),
         optimizer=snt.optimizers.Adam(1e-4),
         checkpoint_subpath=checkpoint_dir,
-        batch_size=512,
-        sequence_length=61,
-        period=61,
-        min_replay_size=512,
+        batch_size=64,
+        sequence_length=150,
+        period=150,
+        min_replay_size=128,
         target_update_period=200,
         embed_dim=32,
         hypernet_embed_dim=64,
         max_gradient_norm=None,
         samples_per_insert=None,
+        offline_environment_logging=True,
+        offline_environment_logging_kwargs={
+            "max_trajectory_length" : 150,
+            "logdir" : "./offline_env_logs",
+            "trajectories_per_file" : 500,
+        },
     )
 
     program._samples_per_insert = None
-    program.run_single_proc_system()
+    program.run_single_proc_system(evaluator_period=10)
 
     # program = program.build()
 

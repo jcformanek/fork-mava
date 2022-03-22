@@ -211,9 +211,14 @@ class IndependentDQN:
 
         # Maybe setup offline logging
         if self._offline_environment_logging:
+            if hasattr(environment, "episode_limit"):
+                max_episode_length = environment.episode_limit
+            else:
+                max_episode_length = self._offline_environment_logging_kwargs["max_trajectory_length"]
+
             environment = MAOfflineEnvironmentLogger(
                 environment=environment,
-                max_trajectory_length=self._offline_environment_logging_kwargs["max_trajectory_length"],
+                max_trajectory_length=max_episode_length,
                 logdir = os.path.join(self._offline_environment_logging_kwargs["logdir"], "executor"),
                 trajectories_per_file=self._offline_environment_logging_kwargs["trajectories_per_file"]
             )
@@ -274,9 +279,14 @@ class IndependentDQN:
 
         # Maybe setup offline logging
         if self._offline_environment_logging:
+            if hasattr(environment, "episode_limit"):
+                max_episode_length = environment.episode_limit
+            else:
+                max_episode_length = self._offline_environment_logging_kwargs["max_trajectory_length"]
+
             environment = MAOfflineEnvironmentLogger(
                 environment=environment,
-                max_trajectory_length=self._offline_environment_logging_kwargs["max_trajectory_length"],
+                max_trajectory_length=max_episode_length,
                 logdir = os.path.join(self._offline_environment_logging_kwargs["logdir"], "evaluator"),
                 trajectories_per_file=self._offline_environment_logging_kwargs["trajectories_per_file"]
             )

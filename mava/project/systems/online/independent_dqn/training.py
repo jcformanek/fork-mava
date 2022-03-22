@@ -69,7 +69,7 @@ class IndependentDQNTrainer:
         self._timestamp: Optional[float] = None
 
         # Optional Q(lambda)
-        self._lambda = 0.8
+        self._lambda = None
 
     def run(self) -> None:
         while True:
