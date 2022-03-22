@@ -1,12 +1,12 @@
 import dm_env
 import numpy as np
 
-from mava.project.offline_utils import MAEnvironmentLogger, MAEnvironmentLoggerDataset
+from mava.project.components.offline import MAOfflineEnvironmentLogger, MAOfflineEnvironmentDataset
 from mava.utils.environments.smac_utils import make_environment
 
 env = make_environment()
-env = MAEnvironmentLogger(env, 100, trajectories_per_file=100)
-NUM_EPISODES = 501
+env = MAOfflineEnvironmentLogger(env, 100, trajectories_per_file=100)
+NUM_EPISODES = 101
 
 timestep, _ = env.reset()
 
@@ -26,7 +26,7 @@ while True:
     if i == NUM_EPISODES:
         break
 
-dataset = MAEnvironmentLoggerDataset(env, "./environment_logs")
+dataset = MAOfflineEnvironmentDataset(env, "./offline_env_logs")
 
 sample = next(iter(dataset))
 

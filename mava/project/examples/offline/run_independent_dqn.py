@@ -26,7 +26,7 @@ from absl import app, flags
 from mava.components.tf.modules.exploration.exploration_scheduling import (
     LinearExplorationTimestepScheduler,
 )
-from mava.project.systems.online.independent_dqn import IndependentDQN, IndependentDQNExecutor, IndependentDQNTrainer
+from mava.project.systems.offline.independent_dqn import OfflineIndependentDQN
 from mava.utils import lp_utils
 from mava.utils.environments.smac_utils import make_environment
 from mava.utils.loggers import logger_utils
@@ -67,32 +67,20 @@ def main(_: Any) -> None:
     )
 
     # Distributed program
-    program = IndependentDQN(
+    program = OfflineIndependentDQN(
         environment_factory=environment_factory,
+        offline_env_log_dir="./offline_3m",
+        shuffle_buffer_size=1_000,
         logger_factory=logger_factory,
-        exploration_scheduler=LinearExplorationTimestepScheduler(
-            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay_steps=50_000,
-        ),
         optimizer=snt.optimizers.Adam(1e-4),
         checkpoint_subpath=checkpoint_dir,
         batch_size=128,
-        sequence_length=61,
-        period=61,
-        lambda_=None,
-        min_replay_size=256,
+        lambda_=0.8,
         target_update_period=200,
         max_gradient_norm=None,
-        samples_per_insert=None,
-        offline_environment_logging=True,
-        offline_environment_logging_kwargs={
-            "max_trajectory_length" : 61,
-            "logdir" : "./offline_env_logs",
-            "trajectories_per_file" : 100,
-        },
     )
 
-    program._samples_per_insert = None
-    program.run_single_proc_system()
+    program.run_single_proc_system(evaluator_period=10)
 
     # program = program.build()
 

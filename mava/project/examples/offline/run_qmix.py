@@ -23,13 +23,7 @@ import launchpad as lp
 import sonnet as snt
 from absl import app, flags
 
-from mava.components.tf.modules.exploration.exploration_scheduling import (
-    LinearExplorationScheduler,
-)
-from mava.offline.offline_madqn import OfflineRecurrentMADQN, OfflineRecurrentMADQNExecutor, OfflineRecurrentMADQNTrainer
-from mava.systems.tf.madqn import make_default_networks
-from mava.utils import lp_utils
-from mava.utils.enums import ArchitectureType
+from mava.project.systems.offline.qmix import OfflineQMIX
 from mava.utils.environments.smac_utils import make_environment
 from mava.utils.loggers import logger_utils
 
@@ -54,11 +48,6 @@ def main(_: Any) -> None:
     # Environment
     environment_factory = functools.partial(make_environment, map_name=FLAGS.map_name)
 
-    # Networks.
-    network_factory = lp_utils.partial_kwargs(
-        make_default_networks, architecture_type=ArchitectureType.recurrent
-    )
-
     # Checkpointer appends "Checkpoints" to checkpoint_dir
     checkpoint_dir = f"{FLAGS.base_dir}/{FLAGS.mava_id}"
 
@@ -74,35 +63,35 @@ def main(_: Any) -> None:
     )
 
     # Distributed program
-    program = OfflineRecurrentMADQN(
+    program = OfflineQMIX(
         environment_factory=environment_factory,
-        network_factory=network_factory,
+        offline_env_log_dir="./offline_3m",
+        shuffle_buffer_size=1_000,
         logger_factory=logger_factory,
-        logdir="./madqn_8m_dataset",
-        optimizer=snt.optimizers.RMSProp(
-            learning_rate=0.0005, epsilon=0.00001, decay=0.99
-        ),
+        optimizer=snt.optimizers.Adam(1e-4),
         checkpoint_subpath=checkpoint_dir,
-        batch_size=32,
+        batch_size=128,
+        lambda_=0.8,
         target_update_period=200,
-        max_gradient_norm=20.0,
-        evaluator_interval={"trainer_steps": 1},
-        trainer_fn=OfflineRecurrentMADQNTrainer,
-        executor_fn=OfflineRecurrentMADQNExecutor,
-    ).build()
-
-    # Only the trainer should use the GPU (if available)
-    local_resources = lp_utils.to_device(
-        program_nodes=program.groups.keys(), nodes_on_gpu=["trainer"]
+        max_gradient_norm=None,
     )
 
-    # Launch
-    lp.launch(
-        program,
-        lp.LaunchType.LOCAL_MULTI_PROCESSING,
-        terminal="current_terminal",
-        local_resources=local_resources,
-    )
+    program.run_single_proc_system(evaluator_period=10)
+
+    # program = program.build()
+
+    # # Only the trainer should use the GPU (if available)
+    # local_resources = lp_utils.to_device(
+    #     program_nodes=program.groups.keys(), nodes_on_gpu=["trainer"]
+    # )
+
+    # # Launch
+    # lp.launch(
+    #     program,
+    #     lp.LaunchType.LOCAL_MULTI_PROCESSING,
+    #     terminal="current_terminal",
+    #     local_resources=local_resources,
+    # )
 
 
 if __name__ == "__main__":

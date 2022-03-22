@@ -13,46 +13,64 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Independent Recurrent DQN system implementation."""
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Type
 
+import acme
 import dm_env
+import launchpad as lp
+import numpy as np
+import reverb
+import tensorflow as tf
 import sonnet as snt
+from acme import specs as acme_specs
+from acme import datasets
+from acme.tf import utils as tf2_utils
+from acme.tf import variable_utils
 
+import mava
+from mava import core
+from mava import specs as mava_specs
+from mava.components.tf.modules.exploration.exploration_scheduling import (
+    ConstantScheduler,
+)
+from mava.adders import reverb as reverb_adders
 from mava.components.tf.modules.exploration.exploration_scheduling import (
     LinearExplorationTimestepScheduler,
 )
+from mava.project.systems.offline.independent_dqn.system_builder import OfflineIndependentDQN
 from mava.types import EpsilonScheduler
 from mava.utils.loggers import MavaLogger
-from mava.project.systems.online.independent_dqn import IndependentDQN, IndependentDQNExecutor
-from mava.project.systems.online.vdn import VDNTrainer
+from mava.wrappers import DetailedPerAgentStatistics
+from mava.utils.builder_utils import initialize_epsilon_schedulers
+from mava.components.tf.networks.epsilon_greedy import EpsilonGreedy
+from mava.project.systems.online.qmix import QMIX
 from mava.project.components.environment_loops import EnvironmentLoop
+from mava.project.components.offline import MAOfflineEnvironmentDataset
+from mava.project.systems.offline.offline_system import OfflineSystem
+
+import wandb
 
 
-class VDN(IndependentDQN):
+class OfflineQMIX(OfflineSystem, QMIX):
     """Independent recurrent DQN system."""
 
     def __init__(  # noqa
         self,
         environment_factory: Callable[[bool], dm_env.Environment],
-        exploration_scheduler=LinearExplorationTimestepScheduler(
-            epsilon_start=1.0, epsilon_min=0.05, epsilon_decay_steps=50_000,
-        ),
+        offline_env_log_dir: str,
+        shuffle_buffer_size: int = 10_000,
+        embed_dim = 32,
+        hypernet_embed_dim = 64,
         wandb: bool = False,
         logger_factory: MavaLogger = None,
         discount: float = 0.99,
         batch_size: int = 32,
-        min_replay_size: int = 64,
-        max_replay_size: int = 5000,
         target_averaging: bool = False,
         target_update_period: int = 200,
         target_update_rate: Optional[float] = None,
-        executor_variable_update_period: int = 1000,
-        samples_per_insert: Optional[float] = None,
         optimizer: snt.Optimizer = snt.optimizers.Adam(
             learning_rate=1e-4
         ),
-        sequence_length: int = 20,
-        period: int = 10,
         max_gradient_norm: float = None,
         checkpoint: bool = True,
         checkpoint_subpath: str = "~/mava/",
@@ -73,35 +91,29 @@ class VDN(IndependentDQN):
         Args:
             TODO
         """
-
         super().__init__(
             environment_factory=environment_factory,
-            exploration_scheduler=exploration_scheduler,
+            embed_dim=embed_dim,
+            hypernet_embed_dim=hypernet_embed_dim,
             logger_factory=logger_factory,
             wandb=wandb,
             discount=discount,
             batch_size=batch_size,
-            min_replay_size=min_replay_size,
-            max_replay_size=max_replay_size,
             target_averaging=target_averaging,
             target_update_period=target_update_period,
             target_update_rate=target_update_rate,
-            executor_variable_update_period=executor_variable_update_period,
-            samples_per_insert=samples_per_insert,
             optimizer=optimizer,
-            sequence_length=sequence_length,
-            period=period,
             max_gradient_norm=max_gradient_norm,
             checkpoint=checkpoint,
             checkpoint_subpath=checkpoint_subpath,
             checkpoint_minute_interval=checkpoint_minute_interval,
             train_loop_fn=train_loop_fn,
             eval_loop_fn=eval_loop_fn,
-            lambda_=lambda_,
             termination_condition=termination_condition,
             evaluator_interval=evaluator_interval,
+            lambda_=lambda_,
             seed=seed,
         )
 
-        self._trainer_fn=VDNTrainer
-        self._executor_fn=IndependentDQNExecutor
+        self._offline_env__log_dir = offline_env_log_dir
+        self._shuffle_buffer_size = shuffle_buffer_size

@@ -78,17 +78,18 @@ class IndependentDQNTrainer:
     def step(self) -> None:
         """Trainer step to update the parameters of the agents in the system"""
 
+        # Sample replay
+        inputs: reverb.ReplaySample = next(self._iterator)
+
         # fetches = self._step()
-        fetches = self._step()
+        fetches = self._step(inputs)
 
         self._logger.write(fetches)
 
         return fetches
 
-    # @tf.function
-    def _step(self):
-        # Sample replay
-        inputs: reverb.ReplaySample = next(self._iterator)
+    @tf.function
+    def _step(self, inputs):
 
         # Batch agent inputs together
         batch = self._batch_inputs(inputs)
@@ -109,8 +110,13 @@ class IndependentDQNTrainer:
         
 
         # Get initial hidden states for RNN
-        initial_hidden_states = batch["hidden_states"][:,0] # Only first timestep
-        initial_hidden_states = tf.reshape(initial_hidden_states, shape=(-1, initial_hidden_states.shape[-1])) # Flatten agent dim into batch dim
+        if batch["hidden_states"] is not None:
+            initial_hidden_states = batch["hidden_states"][:,0] # Only first timestep
+            initial_hidden_states = tf.reshape(initial_hidden_states, shape=(-1, initial_hidden_states.shape[-1])) # Flatten agent dim into batch dim
+            
+        else:
+            initial_hidden_states = self._q_network.initial_state(B*N)[0]
+        # Pack into a tuple because thats what sonnet expects
         hidden_states = (initial_hidden_states,)
 
         # Compute target Q-values
@@ -209,14 +215,20 @@ class IndependentDQNTrainer:
             all_actions.append(actions[agent])
             all_rewards.append(rewards[agent])
             all_discounts.append(discounts[agent])
-            all_hidden_states.append(extras["core_states"][agent][0][0]) # TODO why are states nested here
+
+            if "core_states" in extras:
+                all_hidden_states.append(extras["core_states"][agent][0][0]) # TODO why are states nested here
 
         all_observations = tf.stack(all_observations, axis=-2) # (B,T,N,O)
         all_legals = tf.stack(all_legals, axis=-2) # (B,T,N,A)
-        all_hidden_states = tf.stack(all_hidden_states, axis=-2) # (B,T,N, hidden_dim)
         all_actions = tf.stack(all_actions, axis=-1) # (B,T,N,1)
         all_rewards = tf.reduce_mean(tf.stack(all_rewards, axis=-1), axis=-1, keepdims=True) # (B,T,1)
         all_discounts = tf.reduce_mean(tf.stack(all_discounts, axis=-1), axis=-1, keepdims=True) # (B,T,1)
+
+        if len(all_hidden_states) > 0:
+            all_hidden_states = tf.stack(all_hidden_states, axis=-2) # (B,T,N, hidden_dim)
+        else:
+            all_hidden_states = None
 
         # Cast legals to bool
         all_legals = tf.cast(all_legals, "bool")

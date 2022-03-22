@@ -14,6 +14,7 @@
 # limitations under the License.
 """Independent Recurrent DQN system implementation."""
 from typing import Any, Callable, Dict, Optional, Type
+import os
 
 import acme
 import dm_env
@@ -44,6 +45,7 @@ from mava.utils.builder_utils import initialize_epsilon_schedulers
 from mava.components.tf.networks.epsilon_greedy import EpsilonGreedy
 from mava.project.systems.online.independent_dqn import IndependentDQNTrainer, IndependentDQNExecutor
 from mava.project.components.environment_loops import EnvironmentLoop
+from mava.project.components.offline import MAOfflineEnvironmentLogger
 
 import wandb
 
@@ -77,6 +79,12 @@ class IndependentDQN:
         checkpoint: bool = True,
         checkpoint_subpath: str = "~/mava/",
         checkpoint_minute_interval: int = 5,
+        offline_environment_logging: bool = False,
+        offline_environment_logging_kwargs: Dict = {
+            "max_trajectory_length" : 61,
+            "logdir" : "./offline_env_logs",
+            "trajectories_per_file" : 1000,
+        },
         train_loop_fn: Callable = EnvironmentLoop,
         eval_loop_fn: Callable = EnvironmentLoop,
         lambda_: Optional[float] = None,
@@ -124,6 +132,10 @@ class IndependentDQN:
         self._lambda = lambda_
         self._max_gradient_norm = max_gradient_norm
         self._optimizer = optimizer
+
+        # Offline logging
+        self._offline_environment_logging = offline_environment_logging
+        self._offline_environment_logging_kwargs = offline_environment_logging_kwargs
 
         # Checkpointing
         self._checkpoint = checkpoint
@@ -197,6 +209,15 @@ class IndependentDQN:
         # Create the environment.
         environment = self._environment_factory(evaluation=False)  # type: ignore
 
+        # Maybe setup offline logging
+        if self._offline_environment_logging:
+            environment = MAOfflineEnvironmentLogger(
+                environment=environment,
+                max_trajectory_length=self._offline_environment_logging_kwargs["max_trajectory_length"],
+                logdir = os.path.join(self._offline_environment_logging_kwargs["logdir"], "executor"),
+                trajectories_per_file=self._offline_environment_logging_kwargs["trajectories_per_file"]
+            )
+
         # ENV LOGGING
         # environment = MAEnvironmentLogger(environment, max_trajectory_length=120, trajectories_per_file=1000) 
 
@@ -250,6 +271,15 @@ class IndependentDQN:
 
         # Make the environment
         environment = self._environment_factory()  # type: ignore
+
+        # Maybe setup offline logging
+        if self._offline_environment_logging:
+            environment = MAOfflineEnvironmentLogger(
+                environment=environment,
+                max_trajectory_length=self._offline_environment_logging_kwargs["max_trajectory_length"],
+                logdir = os.path.join(self._offline_environment_logging_kwargs["logdir"], "evaluator"),
+                trajectories_per_file=self._offline_environment_logging_kwargs["trajectories_per_file"]
+            )
 
         # Create logger and counter
         logger = self._logger_factory("evaluator")
